@@ -4,7 +4,7 @@ Essential support of TLS for fs2.
 
 
 [![Build Status](https://travis-ci.org/Spinoco/fs2-crypto.svg?branch=series/0.1)](https://travis-ci.org/Spinoco/fs2-crypto)
-[![Gitter Chat](https://badges.gitter.im/functional-streams-for-scala/fs2.svg)](https://gitter.im/fs2-crypto/Lobby))](https://index.scala-lang.org/functional-streams-for-scala/fs2/fs2-core)
+[![Gitter Chat](https://badges.gitter.im/functional-streams-for-scala/fs2.svg)](https://gitter.im/fs2-crypto/Lobby)
 
 This library adds sport of TLS for  fs2 programs. Library provides two levels of TLS: 
 
