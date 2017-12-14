@@ -57,6 +57,42 @@ object TLSEngineSpec  extends Properties("TLSEngine") {
     test.unsafeRun() ?= (("Hello, World", "Hello, World"))
   }
 
+  property("handshake.client-initiated.incomplete-data") = protect {
+    val sslClient = clientEngine
+    val sslServer = serverEngine
+
+    val data = Chunk.bytes("Hello, World".getBytes)
+
+    val test =
+      for {
+        tlsClient <- TLSEngine.mk[Task](sslClient)
+        tlsServer <- TLSEngine.mk[Task](sslServer)
+        hsToServer1 <- cast[EncryptResult.Handshake[Task]](tlsClient.encrypt(data))
+        // now we will send to server only partial data for the handshake,
+        hsToClient1InComplete <- cast[DecryptResult.Handshake[Task]](tlsServer.decrypt(hsToServer1.data.take(1)))
+        // send remaining data to the server
+        hsToClient1 <- cast[DecryptResult.Handshake[Task]](tlsServer.decrypt(hsToServer1.data.drop(1)))
+        hsToServer2 <- cast[DecryptResult.Handshake[Task]](tlsClient.decrypt(hsToClient1.data))
+        hsToClient2 <- cast[DecryptResult.Handshake[Task]](tlsServer.decrypt(hsToServer2.data))
+        hsToServer3 <- cast[DecryptResult.Decrypted[Task]](tlsClient.decrypt(hsToClient2.data))
+        _ <- cast[DecryptResult.Decrypted[Task]](hsToClient2.signalSent.get)
+
+        dataToServer1 <- cast[EncryptResult.Encrypted[Task]](hsToServer1.next)
+        resultFromClient <- cast[DecryptResult.Decrypted[Task]](tlsServer.decrypt(dataToServer1.data))
+
+        bytesFromClient = resultFromClient.data.toBytes
+        clientString = new String(bytesFromClient.values, bytesFromClient.offset, bytesFromClient.size)
+
+        dataToClient <- cast[EncryptResult.Encrypted[Task]](tlsServer.encrypt(data))
+        resultFromServer <- cast[DecryptResult.Decrypted[Task]](tlsClient.decrypt(dataToClient.data))
+
+        bytesFromServer = resultFromServer.data.toBytes
+        serverString = new String(bytesFromServer.values, bytesFromServer.offset, bytesFromServer.size)
+      } yield (clientString, serverString)
+
+    test.unsafeRun() ?= (("Hello, World", "Hello, World"))
+  }
+
 
   property("handshake.server-initiated") = protect {
 

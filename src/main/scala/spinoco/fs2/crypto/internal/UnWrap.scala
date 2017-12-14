@@ -68,7 +68,7 @@ private[crypto] object UnWrap {
               // however in buffer there may be more TLS frames, so in that case
               // we will consume data from both frames
               ioBuff.inputRemains flatMap { remains =>
-                if (remains <= 0) ioBuff.output map { appData => UnWrapResult(appData, closed = false, needWrap = false, finished = false) }
+                if (remains <= 0) ioBuff.output map { appData => UnWrapResult(appData, closed = false, needWrap = false, finished = false, handshaking = false) }
                 else unwrap(ioBuff)
               }
 
@@ -76,7 +76,7 @@ private[crypto] object UnWrap {
               // indicates that next operation needs to produce data,
               // and switch control to `handshakeWrap`.
               // this will release control to `wrap` function for handshake after acquiring the `wrap` lock
-              ioBuff.output map { appData => UnWrapResult(appData, closed = false, needWrap = true, finished = false) }
+              ioBuff.output map { appData => UnWrapResult(appData, closed = false, needWrap = true, finished = false, handshaking = true) }
 
             case HandshakeStatus.NEED_UNWRAP =>
               // during handshake SSL Engine may require multiple unwraps to be performed
@@ -86,7 +86,7 @@ private[crypto] object UnWrap {
               // read from the network
 
               if (result.bytesConsumed() != 0) unwrap(ioBuff)
-              else ioBuff.output map { appData => UnWrapResult(appData, closed = false, needWrap = false, finished = false) }
+              else ioBuff.output map { appData => UnWrapResult(appData, closed = false, needWrap = false, finished = false, handshaking = true) }
 
             case HandshakeStatus.NEED_TASK =>
               // Engine requires asynchronous tasks to be run, we will wait till they are run
@@ -97,7 +97,7 @@ private[crypto] object UnWrap {
             case HandshakeStatus.FINISHED =>
               // handshake has been finished.
               // needs to be signalled as likely any wrap lock (and handshake success callback) may need to be released
-              ioBuff.output map { appData => UnWrapResult(appData, closed = false, needWrap = false, finished = true) }
+              ioBuff.output map { appData => UnWrapResult(appData, closed = false, needWrap = false, finished = true, handshaking = true) }
 
           }
 
@@ -110,10 +110,11 @@ private[crypto] object UnWrap {
             // we don't have enough data to form TLS Record
             // this indicates that more data has to be received before we will move on
             // as such just return result with no output
-            ioBuff.output map { appData => UnWrapResult(appData, closed = false, needWrap = false, finished = false) }
+            // however during
+            ioBuff.output map { appData => UnWrapResult(appData, closed = false, needWrap = false, finished = false, handshaking = result.getHandshakeStatus != HandshakeStatus.NOT_HANDSHAKING ) }
 
           case Status.CLOSED =>
-            ioBuff.output map { appData => UnWrapResult(appData, closed = true, needWrap = false, finished = false) }
+            ioBuff.output map { appData => UnWrapResult(appData, closed = true, needWrap = false, finished = false, handshaking = result.getHandshakeStatus != HandshakeStatus.NOT_HANDSHAKING ) }
 
         }
       }
@@ -176,18 +177,20 @@ private[crypto] object UnWrap {
 
 /**
   * Result of unwrap operation.
-  * @param out        Data to be sent to application
-  * @param closed     The ssl engine is closed
-  * @param needWrap   The next handshake operation needs `wrap`. This effectivelly shall
-  *                   acquire lock on `wrap` side and perform `wrapHandshake` / `unwrap`
-  *                   until handshake is finalized.
-  * @param finished   Signals finalization of the handshake.
+  * @param out            Data to be sent to application
+  * @param closed         The ssl engine is closed
+  * @param needWrap       The next handshake operation needs `wrap`. This effectivelly shall
+  *                       acquire lock on `wrap` side and perform `wrapHandshake` / `unwrap`
+  *                       until handshake is finalized.
+  * @param finished       Signals finalization of the handshake.
+  * @param handshaking    The ssl is currently handshaking
   */
 case class UnWrapResult(
   out: Chunk[Byte]
   , closed: Boolean
   , needWrap: Boolean
   , finished: Boolean
+  , handshaking: Boolean
 )
 
 

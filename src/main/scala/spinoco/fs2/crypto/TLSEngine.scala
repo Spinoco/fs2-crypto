@@ -89,10 +89,11 @@ object TLSEngine {
     /**
       * During handshake contains data to be sent to other party.
       * Decrypted data will be available after handshake completes with
-      * more succesfull reads to occur from the remote party.
+      * more successful reads to occur from the remote party.
       *
-      *
-      * @param data          Data to be sent back to network, during handshake
+      * @param data          Data to be sent back to network, during handshake. If empty, user must perform another
+      *                      read, before handshake's next step is to be completed and data shall be send to
+      *                      remote side.
       * @param signalSent    When nonempty, shall be consulted to obtain next step in the handshake process
       */
     case class Handshake[F[_]](data: Chunk[Byte], signalSent: Option[F[DecryptResult[F]]]) extends DecryptResult[F]
@@ -238,6 +239,11 @@ object TLSEngine {
               case otherResult => otherResult
             }
           }
+        } else if (result.handshaking && result.out.isEmpty) {
+          // special case when during handshaking we did not get enough data to proceed further.
+          // as such, we signal this by sending an empty Handshake output.
+          // this will signal to user to perfrom more read at this stage
+          F.pure(DecryptResult.Handshake(Chunk.empty, None))
         } else {
           F.pure(DecryptResult.Decrypted(result.out))
         }

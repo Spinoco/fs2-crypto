@@ -94,10 +94,17 @@ object TLSSocket {
                           else readBuffRef.modify { _ :+ data.drop(maxBytes) } as Some(data.take(maxBytes))
 
                         case DecryptResult.Handshake(toSend, next) =>
-                          socket.write(toSend, timeout) flatMap { _ => next match {
-                            case None => readLoop
-                            case Some(next) => next flatMap go
-                          }}
+                          if (toSend.isEmpty && next.isEmpty) {
+                            // handshake was not able to produce output data
+                            // as such another read is required
+                            readLoop
+                          } else {
+                            socket.write(toSend, timeout) flatMap { _ => next match {
+                              case None => readLoop
+                              case Some(next) => next flatMap go
+                            }}
+                          }
+
 
                         case DecryptResult.Closed() => F.pure(None)
                       }
