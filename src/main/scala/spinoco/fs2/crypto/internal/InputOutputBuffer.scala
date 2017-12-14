@@ -36,6 +36,9 @@ private[crypto] trait InputOutputBuffer[F[_]] {
     */
   def expandOutput: F[Unit]
 
+  /** return remaining data in input during consume **/
+  def inputRemains: F[Int]
+
 }
 
 
@@ -110,6 +113,10 @@ private[crypto] object InputOutputBuffer {
         next.put(copy)
         F.pure(outBuff.set(next))
       }
+
+      def inputRemains =
+        F.delay {  inBuff.get().remaining() }
+
     }
   }
 

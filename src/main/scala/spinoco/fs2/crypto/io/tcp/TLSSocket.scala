@@ -6,10 +6,12 @@ import javax.net.ssl.SSLEngine
 
 import fs2._
 import fs2.io.tcp.Socket
-import fs2.util.Async
+import fs2.util.{Async, Catenable}
 import fs2.util.syntax._
 import spinoco.fs2.crypto.TLSEngine
+import spinoco.fs2.crypto.TLSEngine.{DecryptResult, EncryptResult}
 
+import scala.annotation.tailrec
 import scala.concurrent.duration._
 
 trait TLSSocket[F[_]] extends Socket[F] {
@@ -20,9 +22,6 @@ trait TLSSocket[F[_]] extends Socket[F] {
 }
 
 
-/**
-  * Created by pach on 29/01/17.
-  */
 object TLSSocket {
 
 
@@ -51,53 +50,177 @@ object TLSSocket {
     , tlsEngine: TLSEngine[F]
   )(
     implicit F: Async[F]
-  ): F[TLSSocket[F]] = F.delay {
+  ): F[TLSSocket[F]] = {
+    socket.localAddress.flatMap { local =>
+    F.refOf[Catenable[Chunk[Byte]]](Catenable.empty) flatMap { readBuffRef =>
+    async.semaphore(1) map { readSem =>
 
-    new TLSSocket[F] { self =>
-      def readN(numBytes: Int, timeout: Option[FiniteDuration]): F[Option[Chunk[Byte]]] = F.suspend {
-        ???
+      /** gets that much data from the buffer if available **/
+      def getFromBuff(max: Int): F[Chunk[Byte]] = {
+        readBuffRef.modify2 { buff => impl.takeFromBuff(buff, max) } map { case (_, chunk) => chunk }
       }
 
-      def read(maxBytes: Int, timeout: Option[FiniteDuration]): F[Option[Chunk[Byte]]] =
-        ???
+      new TLSSocket[F] { self =>
 
-      def write(bytes: Chunk[Byte], timeout: Option[FiniteDuration]): F[Unit] =
-        ???
+        // During handshake this start the reader action so we may try
+        // to read data from the socket, if required.
+        // Started only on `write` thread, during handshake
+        // this resolves situation, when user wants just to write data to socket
+        // before actually reading them
+        def readHandShake(timeout: Option[FiniteDuration]): F[Unit] = {
+          readSem.decrement flatMap { _ =>
+            read0(10240, timeout).flatMap {
+              case None => readSem.increment
+              case Some(data) =>
+                if (data.isEmpty) readSem.increment
+                else readBuffRef.modify { _ :+ data } flatMap { _ => readSem.increment }
+            }
+          }
 
-      def reads(maxBytes: Int, timeout: Option[FiniteDuration]): Stream[F, Byte] = {
-        ???
+        }
+
+        // like `read` but not guarded by `read` semaphore
+        def read0(maxBytes: Int, timeout: Option[FiniteDuration]): F[Option[Chunk[Byte]]] = {
+          getFromBuff(maxBytes) flatMap { fromBuff =>
+            if (fromBuff.nonEmpty) F.pure(Some(fromBuff): Option[Chunk[Byte]])
+            else {
+              def readLoop: F[Option[Chunk[Byte]]] = {
+                socket.read(maxBytes, timeout) flatMap {
+                  case Some(data) =>
+                    def go(result: DecryptResult[F]): F[Option[Chunk[Byte]]] = {
+                      result match {
+                        case DecryptResult.Decrypted(data) =>
+                          if (data.size <= maxBytes) F.pure(Some(data))
+                          else readBuffRef.modify { _ :+ data.drop(maxBytes) } as Some(data.take(maxBytes))
+
+                        case DecryptResult.Handshake(toSend, next) =>
+                          socket.write(toSend, timeout) flatMap { _ => next match {
+                            case None => readLoop
+                            case Some(next) => next flatMap go
+                          }}
+
+                        case DecryptResult.Closed() => F.pure(None)
+                      }
+                    }
+
+                    tlsEngine.decrypt(data) flatMap go
+
+                  case None => F.pure(None)
+                }
+              }
+
+              readLoop
+            }
+          }
+        }
+
+
+        def readN(numBytes: Int, timeout: Option[FiniteDuration]): F[Option[Chunk[Byte]]] = {
+          readSem.decrement flatMap { _ =>
+            def go(acc: Catenable[Chunk[Byte]]): F[Option[Chunk[Byte]]] = {
+              val toRead = numBytes - acc.foldLeft(0)(_ + _.size)
+              if (toRead <= 0) F.pure(Some(Chunk.concatBytes(acc.toList)))
+              else {
+                read0(numBytes, timeout) flatMap {
+                  case Some(chunk) => go(acc :+ chunk)
+                  case None => F.pure(Some(Chunk.concatBytes(acc.toList)))
+                }
+              }
+            }
+
+            go(Catenable.empty).attempt flatMap {
+              case Right(r) => readSem.increment as r
+              case Left(err) => readSem.increment *> F.fail(err)
+            }
+          }
+        }
+
+        def read(maxBytes: Int, timeout: Option[FiniteDuration]): F[Option[Chunk[Byte]]] = {
+          readSem.decrement flatMap { _ =>
+          read0(maxBytes, timeout).attempt flatMap {
+            case Right(r) => readSem.increment as r
+            case Left(err) => readSem.increment *> F.fail(err)
+          }}
+        }
+
+
+        def write(bytes: Chunk[Byte], timeout: Option[FiniteDuration]): F[Unit] = {
+          def go(result: EncryptResult[F]): F[Unit] = {
+            result match {
+              case EncryptResult.Encrypted(data) => socket.write(data, timeout)
+
+              case EncryptResult.Handshake(data, next) =>
+                socket.write(data, timeout) flatMap { _ => F.start(readHandShake(timeout)) *> next flatMap go }
+
+              case EncryptResult.Closed() =>
+                F.fail(new Throwable("TLS Engine is closed"))
+            }
+          }
+
+          tlsEngine.encrypt(bytes).flatMap(go)
+        }
+
+        def reads(maxBytes: Int, timeout: Option[FiniteDuration]): Stream[F, Byte] =
+          Stream.repeatEval(read(maxBytes, timeout)).unNoneTerminate.flatMap(Stream.chunk)
+
+        def writes(timeout: Option[FiniteDuration]): Sink[F, Byte] =
+          _.chunks.evalMap(write(_, timeout))
+
+
+        def endOfOutput: F[Unit] =
+          tlsEngine.stopEncrypt flatMap { _ => socket.endOfOutput }
+
+
+        def endOfInput: F[Unit] =
+          tlsEngine.stopDecrypt flatMap { _ => socket.endOfInput }
+
+
+        def localAddress: F[SocketAddress] =
+          socket.localAddress
+
+        def remoteAddress: F[SocketAddress] =
+          socket.remoteAddress
+
+        def startHandshake: F[Unit] =
+          tlsEngine.startHandshake
+
+        def close: F[Unit] =
+          tlsEngine.stopEncrypt flatMap { _ =>
+          tlsEngine.stopDecrypt flatMap { _ =>
+            socket.close
+          }}
+
       }
 
-      def writes(timeout: Option[FiniteDuration]): Sink[F, Byte] =
-        ???
-
-      def endOfOutput: F[Unit] =
-        tlsEngine.stopEncrypt flatMap { _ => socket.endOfOutput }
-
-
-      def endOfInput: F[Unit] =
-        tlsEngine.stopNetwork flatMap { _ => socket.endOfInput }
-
-
-      def localAddress: F[SocketAddress] =
-        socket.localAddress
-
-      def remoteAddress: F[SocketAddress] =
-        socket.remoteAddress
-
-      def startHandshake: F[Unit] =
-        tlsEngine.startHandshake
-
-      def close: F[Unit] =
-        ???
-
-    }
-
+    }}}
 
   }
 
 
   private[tcp] object impl {
+
+    def takeFromBuff(buff: Catenable[Chunk[Byte]], max: Int): (Catenable[Chunk[Byte]], Chunk[Byte]) = {
+      @tailrec
+      def go(rem: Catenable[Chunk[Byte]], acc: Catenable[Chunk[Byte]], toGo: Int): (Catenable[Chunk[Byte]], Chunk[Byte]) = {
+        if (toGo <= 0) (rem, Chunk.concatBytes(acc.toList))
+        else {
+          rem.uncons match {
+            case Some((head, tail)) =>
+              val add = head.take(toGo)
+              val leave = head.drop(toGo)
+              if (leave.isEmpty) go(tail, acc :+ add, toGo - add.size)
+              else go(leave +: tail, acc :+ add, toGo - add.size)
+
+            case None =>
+              go(rem, acc, 0)
+
+          }
+        }
+      }
+
+      if (buff.isEmpty) (Catenable.empty, Chunk.empty)
+      else go(buff, Catenable.empty, max)
+    }
 
   }
 

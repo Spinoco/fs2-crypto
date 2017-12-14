@@ -60,11 +60,17 @@ private[crypto] object UnWrap {
     def unwrap[F[_]](
       ioBuff: InputOutputBuffer[F]
     )(implicit engine: SSLEngine, F: Async[F], RT: SSLTaskRunner[F]): F[UnWrapResult] = {
-      ioBuff.perform(engine.unwrap) flatMap { result => println(s"UNWRAP($engine): $result")
+      ioBuff.perform(engine.unwrap) flatMap { result =>
         result.getStatus match {
           case Status.OK => result.getHandshakeStatus match {
             case HandshakeStatus.NOT_HANDSHAKING =>
-              ioBuff.output map { appData => UnWrapResult(appData, closed = false, needWrap = false, finished = false) }
+              // engine always return only one frame as part of unwrap.
+              // however in buffer there may be more TLS frames, so in that case
+              // we will consume data from both frames
+              ioBuff.inputRemains flatMap { remains =>
+                if (remains <= 0) ioBuff.output map { appData => UnWrapResult(appData, closed = false, needWrap = false, finished = false) }
+                else unwrap(ioBuff)
+              }
 
             case HandshakeStatus.NEED_WRAP =>
               // indicates that next operation needs to produce data,
@@ -118,7 +124,7 @@ private[crypto] object UnWrap {
       ioBuff: InputOutputBuffer[F]
     )(implicit engine: SSLEngine, F: Async[F], RT: SSLTaskRunner[F]): F[HandshakeResult] = {
 
-      ioBuff.perform(engine.wrap) flatMap { result => println(s"UNWRAP($engine): WRAP: $result")
+      ioBuff.perform(engine.wrap) flatMap { result =>
         result.getStatus match {
         case Status.OK => result.getHandshakeStatus match {
           case HandshakeStatus.NOT_HANDSHAKING =>

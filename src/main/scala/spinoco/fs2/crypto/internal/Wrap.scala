@@ -15,7 +15,6 @@ import fs2.util.syntax._
   *
   * Note that this must be not accessed from the multiple threads cocnurrently.
   *
-  * @tparam F
   */
 private[crypto] trait Wrap[F[_]] {
 
@@ -48,7 +47,7 @@ private[crypto] object Wrap {
           handshakeDoneRef.get.map(_.nonEmpty)
 
         def handshakeComplete: F[Unit] =
-          handshakeDoneRef.modify(_ => None).flatMap { _.previous.getOrElse(F.pure(())) }
+          handshakeDoneRef.modify{ _ => None }.flatMap { _.previous.getOrElse(F.pure(())) }
       }
 
     }}}
@@ -63,7 +62,7 @@ private[crypto] object Wrap {
     )(implicit engine: SSLEngine, F: Async[F], RT: SSLTaskRunner[F]): F[WrapResult[F]] = {
 
 
-      ioBuff.perform(engine.wrap) flatMap { result => println(s"WRAP($engine): $result");
+      ioBuff.perform(engine.wrap) flatMap { result =>
         result.getStatus match {
         case Status.OK => result.getHandshakeStatus match {
           case HandshakeStatus.NOT_HANDSHAKING =>
@@ -87,8 +86,8 @@ private[crypto] object Wrap {
             // produce application data from appBuffer.
             ioBuff.output flatMap { chunk =>
             F.ref[Unit] flatMap { signal =>
-            handshakeDoneRef.modify(_ => Some(signal.setPure(()) map { _ => println(s"XXXY ($engine)TRIGGERED CB") })) map { _ =>
-              WrapResult(Some(signal.get map { x => println(s"XXXY ($engine) SIGNALLED CB"); x }), chunk, closed = false)
+            handshakeDoneRef.modify(_ => Some(signal.setPure(()))) map { c =>
+              WrapResult(Some(signal.get), chunk, closed = false)
             }}}
 
           case HandshakeStatus.NEED_TASK =>

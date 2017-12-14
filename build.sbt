@@ -33,6 +33,7 @@ lazy val commonSettings = Seq(
     compilerPlugin("org.spire-math" %% "kind-projector" % "0.9.4"),
     "co.fs2" %% "fs2-core" % "0.9.7",
     "co.fs2" %% "fs2-io" % "0.9.7",
+    "com.chuusai" %% "shapeless" % "2.3.2" % "test",
     "org.scalacheck" %%% "scalacheck" % "1.13.5" % "test"
   ),
   scmInfo := Some(ScmInfo(url("https://github.com/Spinoco/fs2-crypto"), "git@github.com:Spinoco/fs2-crypto.git")),

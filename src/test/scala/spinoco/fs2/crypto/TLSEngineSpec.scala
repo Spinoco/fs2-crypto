@@ -4,14 +4,25 @@ package spinoco.fs2.crypto
 import javax.net.ssl.SSLEngine
 
 import fs2._
+import shapeless.Typeable
+
+import scala.reflect.ClassTag
 import fs2.util.Async
 import org.scalacheck._
 import org.scalacheck.Prop._
+import spinoco.fs2.crypto.TLSEngine.{DecryptResult, EncryptResult}
 
 object TLSEngineSpec  extends Properties("TLSEngine") {
-  import SSLEngineHelper._
+  import TLSEngineSpecHelper._
 
+  implicit val chunkTypeable: Typeable[Chunk[Byte]] = Typeable.apply[Chunk[Byte]]
 
+  def cast[A](f: Task[Any])(implicit T: ClassTag[A]): Task[A] = {
+    f flatMap { any =>
+      if (T.runtimeClass.getName == any.getClass.getName) Task.now(any.asInstanceOf[A])
+      else Task.fail(new Throwable(s"Expected ${T.runtimeClass.getName} but got $any"))
+     }
+  }
 
   property("handshake.client-initiated") = protect {
     val sslClient = clientEngine
@@ -23,25 +34,23 @@ object TLSEngineSpec  extends Properties("TLSEngine") {
       for {
         tlsClient <- TLSEngine.mk[Task](sslClient)
         tlsServer <- TLSEngine.mk[Task](sslServer)
-        _ <- F.start(tlsClient.encrypt(data))
-        hsToServer1 <- tlsClient.networkSend
-        _ <- F.start(tlsServer.networkReceived(hsToServer1.get))
-        hsToClient1 <- tlsServer.networkSend
-        _ <- F.start(tlsClient.networkReceived(hsToClient1.get))
-        hsToServer2 <- tlsClient.networkSend
-        _ <- F.start(tlsServer.networkReceived(hsToServer2.get))
-        hsToClient2 <- tlsServer.networkSend
-        _ <- F.start(tlsClient.networkReceived(hsToClient2.get))
-        dataToServer1 <- tlsClient.networkSend
-        _ <- F.start(tlsServer.networkReceived(dataToServer1.get))
-        resultFromClient <- tlsServer.decrypt
-        bytesFromClient = resultFromClient.get.toBytes
+        hsToServer1 <- cast[EncryptResult.Handshake[Task]](tlsClient.encrypt(data))
+        hsToClient1 <- cast[DecryptResult.Handshake[Task]](tlsServer.decrypt(hsToServer1.data))
+        hsToServer2 <- cast[DecryptResult.Handshake[Task]](tlsClient.decrypt(hsToClient1.data))
+        hsToClient2 <- cast[DecryptResult.Handshake[Task]](tlsServer.decrypt(hsToServer2.data))
+        hsToServer3 <- cast[DecryptResult.Decrypted[Task]](tlsClient.decrypt(hsToClient2.data))
+        _ <- cast[DecryptResult.Decrypted[Task]](hsToClient2.signalSent.get)
+
+        dataToServer1 <- cast[EncryptResult.Encrypted[Task]](hsToServer1.next)
+        resultFromClient <- cast[DecryptResult.Decrypted[Task]](tlsServer.decrypt(dataToServer1.data))
+
+        bytesFromClient = resultFromClient.data.toBytes
         clientString = new String(bytesFromClient.values, bytesFromClient.offset, bytesFromClient.size)
-        _ <- F.start(tlsServer.encrypt(data))
-        dataToClient <- tlsServer.networkSend
-        _ <- F.start(tlsClient.networkReceived(dataToClient.get))
-        resultFromServer <- tlsClient.decrypt
-        bytesFromServer = resultFromServer.get.toBytes
+
+        dataToClient <- cast[EncryptResult.Encrypted[Task]](tlsServer.encrypt(data))
+        resultFromServer <- cast[DecryptResult.Decrypted[Task]](tlsClient.decrypt(dataToClient.data))
+
+        bytesFromServer = resultFromServer.data.toBytes
         serverString = new String(bytesFromServer.values, bytesFromServer.offset, bytesFromServer.size)
     } yield (clientString, serverString)
 
@@ -54,37 +63,30 @@ object TLSEngineSpec  extends Properties("TLSEngine") {
     val sslClient = clientEngine
     val sslServer = serverEngine
 
-
-
     val data = Chunk.bytes("Hello, World".getBytes)
 
     val test =
       for {
         tlsClient <- TLSEngine.mk[Task](sslClient)
         tlsServer <- TLSEngine.mk[Task](sslServer)
-        _ <- F.start(tlsServer.encrypt(data))
+        hsToClient0 <- cast[EncryptResult.Handshake[Task]](tlsServer.encrypt(data))
         // client must send hello, in order for server to read data
         // as such we initiate client with empty chunk of data
-        _ <- F.start(tlsClient.encrypt(Chunk.empty))
-        hsToServer1 <- tlsClient.networkSend
-        _ <- F.start(tlsServer.networkReceived(hsToServer1.get))
-        hsToClient1 <- tlsServer.networkSend
-        _ <- F.start(tlsClient.networkReceived(hsToClient1.get))
-        hsToServer2 <- tlsClient.networkSend
-        _ <- F.start(tlsServer.networkReceived(hsToServer2.get))
-        hsToClient2 <- tlsServer.networkSend
-        _ <- F.start(tlsClient.networkReceived(hsToClient2.get))
-        dataToClient1 <- tlsServer.networkSend
-        _ <- F.start(tlsClient.networkReceived(dataToClient1.get))
-        resultFromServer <- tlsClient.decrypt
-        bytesFromServer = resultFromServer.get.toBytes
+        hsToServer1 <- cast[EncryptResult.Handshake[Task]](tlsClient.encrypt(Chunk.empty))
+        hsToClient1 <- cast[DecryptResult.Handshake[Task]](tlsServer.decrypt(hsToServer1.data))
+        hsToServer2 <- cast[DecryptResult.Handshake[Task]](tlsClient.decrypt(hsToClient1.data))
+        hsToClient2 <- cast[DecryptResult.Handshake[Task]](tlsServer.decrypt(hsToServer2.data))
+        _ <- cast[DecryptResult.Decrypted[Task]](tlsClient.decrypt(hsToClient2.data))
+        _ <- cast[DecryptResult.Decrypted[Task]](hsToClient2.signalSent.get)
+        dataToClient1 <- cast[EncryptResult.Encrypted[Task]](hsToClient0.next)
+        resultFromServer <- cast[DecryptResult.Decrypted[Task]](tlsClient.decrypt(dataToClient1.data))
+        bytesFromServer = resultFromServer.data.toBytes
         serverString = new String(bytesFromServer.values, bytesFromServer.offset, bytesFromServer.size)
 
-        _ <- F.start(tlsClient.encrypt(data))
-        dataToServer1 <- tlsClient.networkSend
-        _ <- F.start(tlsServer.networkReceived(dataToServer1.get))
-        resultFromClient <- tlsServer.decrypt
-        bytesFromClient = resultFromClient.get.toBytes
+        _ <- cast[EncryptResult.Encrypted[Task]](hsToServer1.next)
+        dataToServer1 <- cast[EncryptResult.Encrypted[Task]](tlsClient.encrypt(data))
+        resultFromClient <- cast[DecryptResult.Decrypted[Task]](tlsServer.decrypt(dataToServer1.data))
+        bytesFromClient = resultFromClient.data.toBytes
         clientString = new String(bytesFromClient.values, bytesFromClient.offset, bytesFromClient.size)
 
        } yield (clientString, serverString)
@@ -100,24 +102,36 @@ object TLSEngineSpec  extends Properties("TLSEngine") {
     , content: Stream[F, Chunk[Byte]]
   )(implicit F: Async[F]): Stream[F, Chunk[Byte]] = {
     Stream.eval(TLSEngine.mk[F](engine)) flatMap { tlsEngine =>
-      val encrypt = content evalMap tlsEngine.encrypt
+      val encrypt = content.flatMap { data =>
+        def go(result: EncryptResult[F]): Stream[F, Option[Chunk[Byte]]] = {
+          result match {
+            case EncryptResult.Encrypted(data) => Stream.emit(Some(data))
+            case EncryptResult.Handshake(data, next) => Stream.emit(Some(data)) ++ Stream.eval(next).flatMap(go)
+            case EncryptResult.Closed() => Stream.emit(None)
+          }
+        }
+
+        Stream.eval(tlsEngine.encrypt(data)) flatMap go
+      }.unNoneTerminate
+      .evalMap(send)
 
       val decrypt =
-        Stream.repeatEval(tlsEngine.decrypt)
-        .unNoneTerminate
+        receive.flatMap { data =>
+          def go(result: DecryptResult[F]): Stream[F, Option[Chunk[Byte]]] = {
+            result match {
+              case DecryptResult.Decrypted(data) => Stream.emit(Some(data))
+              case DecryptResult.Handshake(data, next) => Stream.eval_(send(data)) ++ Stream.emits(next.toSeq).evalMap(identity).flatMap(go)
+              case DecryptResult.Closed() => Stream.emit(None)
+            }
+          }
+
+          Stream.eval(tlsEngine.decrypt(data)) flatMap go
+        }.unNoneTerminate
         .scan(Chunk.empty: Chunk[Byte]) { case (acc, next) => Chunk.concatBytes(Seq(acc, next)) }
-
-      val toNetwork =
-        Stream.repeatEval(tlsEngine.networkSend).unNoneTerminate evalMap send
-
-      val fromNetwork =
-        receive evalMap tlsEngine.networkReceived
 
       concurrent.join(Int.MaxValue)(Stream(
         encrypt.drain
         , decrypt
-        , toNetwork.drain
-        , fromNetwork.drain
       ))
     }
   }
