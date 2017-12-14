@@ -7,6 +7,23 @@ This library adds sport of TLS for  fs2 programs. Library provides two levels of
  - **TLSEngine** A Low level abstraction of java's `SSLEngine` allowing asynchronous functional usage of `SSLEngine`
  - **TLSSocket** A wrapper of standard `fs2.io.tcp.Socket` that allows to receive/send data over TLS/SSL
  
+### SBT
+
+Add this to your sbt build file :
+
+for fs2 0.9.x series:
+
+```
+libraryDependencies += "com.spinoco" %% "fs2-crypto" % "0.1.0"
+```
+
+### Dependencies
+
+version  |    scala  |   fs2   
+---------|-----------|--------- 
+0.1.0    | 2.11, 2.12| 0.9.7    
+ 
+ 
 ## TLSSocket
 
 To create encrypted TLS socket, library allows very simple usage by just using current `fs2.io.tcp.Socket`. 
