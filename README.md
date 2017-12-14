@@ -1,5 +1,7 @@
 # fs2-crypto
 
+[![Join the chat at https://gitter.im/fs2-crypto/Lobby](https://badges.gitter.im/fs2-crypto/Lobby.svg)](https://gitter.im/fs2-crypto/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
 Essential support of TLS for fs2. 
 
 
