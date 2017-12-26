@@ -15,6 +15,12 @@ This library adds sport of TLS for  fs2 programs. Library provides two levels of
 
 Add this to your sbt build file :
 
+for fs2 0.10.0-M10 series:
+
+```
+libraryDependencies += "com.spinoco" %% "fs2-crypto" % "0.2.0-M10"
+```
+
 for fs2 0.9.x series:
 
 ```
@@ -23,9 +29,10 @@ libraryDependencies += "com.spinoco" %% "fs2-crypto" % "0.1.0"
 
 ### Dependencies
 
-version  |    scala  |   fs2   
----------|-----------|--------- 
-0.1.0    | 2.11, 2.12| 0.9.7    
+version         |    scala  |   fs2   
+----------------|-----------|--------- 
+0.1.1           | 2.11, 2.12| 0.9.7  
+0.2.0-M10       | 2.11, 2.12| 0.10.0-M10 
  
  
 ## TLSSocket
