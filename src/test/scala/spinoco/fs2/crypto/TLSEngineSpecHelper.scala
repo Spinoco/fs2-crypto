@@ -5,20 +5,17 @@ import java.security.KeyStore
 import java.util.concurrent.Executors
 import javax.net.ssl.{KeyManagerFactory, SSLContext, SSLEngine, TrustManagerFactory}
 
-import fs2.util.Async
-import fs2.{Scheduler, Strategy, Task}
+import fs2._
 
 import scala.concurrent.ExecutionContext
 
 
 object TLSEngineSpecHelper {
 
-  implicit lazy val S = Strategy.fromExecutionContext(ExecutionContext.Implicits.global)
-  val ES = Executors.newCachedThreadPool(Strategy.daemonThreadFactory("AG"))
-  implicit val Sch = Scheduler.fromScheduledExecutorService(Executors.newScheduledThreadPool(4, Strategy.daemonThreadFactory("S")))
-  implicit val AG = AsynchronousChannelGroup.withThreadPool(ES)
-
-  implicit lazy val F = implicitly[Async[Task]]
+  implicit val ec = ExecutionContext.Implicits.global
+  val sslEc = ExecutionContext.Implicits.global
+  implicit val Sch = Scheduler.fromScheduledExecutorService(Executors.newScheduledThreadPool(4))
+  implicit val AG = AsynchronousChannelGroup.withThreadPool(Executors.newCachedThreadPool())
 
   lazy val sslCtx = {
     val keyStore = KeyStore.getInstance("jks")

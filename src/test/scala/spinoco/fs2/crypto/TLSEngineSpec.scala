@@ -3,24 +3,25 @@ package spinoco.fs2.crypto
 
 import javax.net.ssl.SSLEngine
 
+import cats.effect.{Effect, IO}
 import fs2._
 import shapeless.Typeable
 
 import scala.reflect.ClassTag
-import fs2.util.Async
 import org.scalacheck._
 import org.scalacheck.Prop._
 import spinoco.fs2.crypto.TLSEngine.{DecryptResult, EncryptResult}
+import spinoco.fs2.crypto.internal.util.concatBytes
 
 object TLSEngineSpec  extends Properties("TLSEngine") {
   import TLSEngineSpecHelper._
 
   implicit val chunkTypeable: Typeable[Chunk[Byte]] = Typeable.apply[Chunk[Byte]]
 
-  def cast[A](f: Task[Any])(implicit T: ClassTag[A]): Task[A] = {
+  def cast[A](f: IO[Any])(implicit T: ClassTag[A]): IO[A] = {
     f flatMap { any =>
-      if (T.runtimeClass.getName == any.getClass.getName) Task.now(any.asInstanceOf[A])
-      else Task.fail(new Throwable(s"Expected ${T.runtimeClass.getName} but got $any"))
+      if (T.runtimeClass.getName == any.getClass.getName) IO.pure(any.asInstanceOf[A])
+      else IO.raiseError(new Throwable(s"Expected ${T.runtimeClass.getName} but got $any"))
      }
   }
 
@@ -32,29 +33,29 @@ object TLSEngineSpec  extends Properties("TLSEngine") {
 
     val test =
       for {
-        tlsClient <- TLSEngine.mk[Task](sslClient)
-        tlsServer <- TLSEngine.mk[Task](sslServer)
-        hsToServer1 <- cast[EncryptResult.Handshake[Task]](tlsClient.encrypt(data))
-        hsToClient1 <- cast[DecryptResult.Handshake[Task]](tlsServer.decrypt(hsToServer1.data))
-        hsToServer2 <- cast[DecryptResult.Handshake[Task]](tlsClient.decrypt(hsToClient1.data))
-        hsToClient2 <- cast[DecryptResult.Handshake[Task]](tlsServer.decrypt(hsToServer2.data))
-        hsToServer3 <- cast[DecryptResult.Decrypted[Task]](tlsClient.decrypt(hsToClient2.data))
-        _ <- cast[DecryptResult.Decrypted[Task]](hsToClient2.signalSent.get)
+        tlsClient <- TLSEngine.mk[IO](sslClient, sslEc)
+        tlsServer <- TLSEngine.mk[IO](sslServer, sslEc)
+        hsToServer1 <- cast[EncryptResult.Handshake[IO]](tlsClient.encrypt(data))
+        hsToClient1 <- cast[DecryptResult.Handshake[IO]](tlsServer.decrypt(hsToServer1.data))
+        hsToServer2 <- cast[DecryptResult.Handshake[IO]](tlsClient.decrypt(hsToClient1.data))
+        hsToClient2 <- cast[DecryptResult.Handshake[IO]](tlsServer.decrypt(hsToServer2.data))
+        hsToServer3 <- cast[DecryptResult.Decrypted[IO]](tlsClient.decrypt(hsToClient2.data))
+        _ <- cast[DecryptResult.Decrypted[IO]](hsToClient2.signalSent.get)
 
-        dataToServer1 <- cast[EncryptResult.Encrypted[Task]](hsToServer1.next)
-        resultFromClient <- cast[DecryptResult.Decrypted[Task]](tlsServer.decrypt(dataToServer1.data))
+        dataToServer1 <- cast[EncryptResult.Encrypted[IO]](hsToServer1.next)
+        resultFromClient <- cast[DecryptResult.Decrypted[IO]](tlsServer.decrypt(dataToServer1.data))
 
         bytesFromClient = resultFromClient.data.toBytes
         clientString = new String(bytesFromClient.values, bytesFromClient.offset, bytesFromClient.size)
 
-        dataToClient <- cast[EncryptResult.Encrypted[Task]](tlsServer.encrypt(data))
-        resultFromServer <- cast[DecryptResult.Decrypted[Task]](tlsClient.decrypt(dataToClient.data))
+        dataToClient <- cast[EncryptResult.Encrypted[IO]](tlsServer.encrypt(data))
+        resultFromServer <- cast[DecryptResult.Decrypted[IO]](tlsClient.decrypt(dataToClient.data))
 
         bytesFromServer = resultFromServer.data.toBytes
         serverString = new String(bytesFromServer.values, bytesFromServer.offset, bytesFromServer.size)
     } yield (clientString, serverString)
 
-    test.unsafeRun() ?= (("Hello, World", "Hello, World"))
+    test.unsafeRunSync() ?= (("Hello, World", "Hello, World"))
   }
 
   property("handshake.client-initiated.incomplete-data") = protect {
@@ -65,32 +66,32 @@ object TLSEngineSpec  extends Properties("TLSEngine") {
 
     val test =
       for {
-        tlsClient <- TLSEngine.mk[Task](sslClient)
-        tlsServer <- TLSEngine.mk[Task](sslServer)
-        hsToServer1 <- cast[EncryptResult.Handshake[Task]](tlsClient.encrypt(data))
+        tlsClient <- TLSEngine.mk[IO](sslClient, sslEc)
+        tlsServer <- TLSEngine.mk[IO](sslServer, sslEc)
+        hsToServer1 <- cast[EncryptResult.Handshake[IO]](tlsClient.encrypt(data))
         // now we will send to server only partial data for the handshake,
-        hsToClient1InComplete <- cast[DecryptResult.Handshake[Task]](tlsServer.decrypt(hsToServer1.data.take(1)))
+        hsToClient1InComplete <- cast[DecryptResult.Handshake[IO]](tlsServer.decrypt(hsToServer1.data.take(1)))
         // send remaining data to the server
-        hsToClient1 <- cast[DecryptResult.Handshake[Task]](tlsServer.decrypt(hsToServer1.data.drop(1)))
-        hsToServer2 <- cast[DecryptResult.Handshake[Task]](tlsClient.decrypt(hsToClient1.data))
-        hsToClient2 <- cast[DecryptResult.Handshake[Task]](tlsServer.decrypt(hsToServer2.data))
-        hsToServer3 <- cast[DecryptResult.Decrypted[Task]](tlsClient.decrypt(hsToClient2.data))
-        _ <- cast[DecryptResult.Decrypted[Task]](hsToClient2.signalSent.get)
+        hsToClient1 <- cast[DecryptResult.Handshake[IO]](tlsServer.decrypt(hsToServer1.data.drop(1)))
+        hsToServer2 <- cast[DecryptResult.Handshake[IO]](tlsClient.decrypt(hsToClient1.data))
+        hsToClient2 <- cast[DecryptResult.Handshake[IO]](tlsServer.decrypt(hsToServer2.data))
+        hsToServer3 <- cast[DecryptResult.Decrypted[IO]](tlsClient.decrypt(hsToClient2.data))
+        _ <- cast[DecryptResult.Decrypted[IO]](hsToClient2.signalSent.get)
 
-        dataToServer1 <- cast[EncryptResult.Encrypted[Task]](hsToServer1.next)
-        resultFromClient <- cast[DecryptResult.Decrypted[Task]](tlsServer.decrypt(dataToServer1.data))
+        dataToServer1 <- cast[EncryptResult.Encrypted[IO]](hsToServer1.next)
+        resultFromClient <- cast[DecryptResult.Decrypted[IO]](tlsServer.decrypt(dataToServer1.data))
 
         bytesFromClient = resultFromClient.data.toBytes
         clientString = new String(bytesFromClient.values, bytesFromClient.offset, bytesFromClient.size)
 
-        dataToClient <- cast[EncryptResult.Encrypted[Task]](tlsServer.encrypt(data))
-        resultFromServer <- cast[DecryptResult.Decrypted[Task]](tlsClient.decrypt(dataToClient.data))
+        dataToClient <- cast[EncryptResult.Encrypted[IO]](tlsServer.encrypt(data))
+        resultFromServer <- cast[DecryptResult.Decrypted[IO]](tlsClient.decrypt(dataToClient.data))
 
         bytesFromServer = resultFromServer.data.toBytes
         serverString = new String(bytesFromServer.values, bytesFromServer.offset, bytesFromServer.size)
       } yield (clientString, serverString)
 
-    test.unsafeRun() ?= (("Hello, World", "Hello, World"))
+    test.unsafeRunSync() ?= (("Hello, World", "Hello, World"))
   }
 
 
@@ -103,31 +104,31 @@ object TLSEngineSpec  extends Properties("TLSEngine") {
 
     val test =
       for {
-        tlsClient <- TLSEngine.mk[Task](sslClient)
-        tlsServer <- TLSEngine.mk[Task](sslServer)
-        hsToClient0 <- cast[EncryptResult.Handshake[Task]](tlsServer.encrypt(data))
+        tlsClient <- TLSEngine.mk[IO](sslClient, sslEc)
+        tlsServer <- TLSEngine.mk[IO](sslServer, sslEc)
+        hsToClient0 <- cast[EncryptResult.Handshake[IO]](tlsServer.encrypt(data))
         // client must send hello, in order for server to read data
         // as such we initiate client with empty chunk of data
-        hsToServer1 <- cast[EncryptResult.Handshake[Task]](tlsClient.encrypt(Chunk.empty))
-        hsToClient1 <- cast[DecryptResult.Handshake[Task]](tlsServer.decrypt(hsToServer1.data))
-        hsToServer2 <- cast[DecryptResult.Handshake[Task]](tlsClient.decrypt(hsToClient1.data))
-        hsToClient2 <- cast[DecryptResult.Handshake[Task]](tlsServer.decrypt(hsToServer2.data))
-        _ <- cast[DecryptResult.Decrypted[Task]](tlsClient.decrypt(hsToClient2.data))
-        _ <- cast[DecryptResult.Decrypted[Task]](hsToClient2.signalSent.get)
-        dataToClient1 <- cast[EncryptResult.Encrypted[Task]](hsToClient0.next)
-        resultFromServer <- cast[DecryptResult.Decrypted[Task]](tlsClient.decrypt(dataToClient1.data))
+        hsToServer1 <- cast[EncryptResult.Handshake[IO]](tlsClient.encrypt(Chunk.empty))
+        hsToClient1 <- cast[DecryptResult.Handshake[IO]](tlsServer.decrypt(hsToServer1.data))
+        hsToServer2 <- cast[DecryptResult.Handshake[IO]](tlsClient.decrypt(hsToClient1.data))
+        hsToClient2 <- cast[DecryptResult.Handshake[IO]](tlsServer.decrypt(hsToServer2.data))
+        _ <- cast[DecryptResult.Decrypted[IO]](tlsClient.decrypt(hsToClient2.data))
+        _ <- cast[DecryptResult.Decrypted[IO]](hsToClient2.signalSent.get)
+        dataToClient1 <- cast[EncryptResult.Encrypted[IO]](hsToClient0.next)
+        resultFromServer <- cast[DecryptResult.Decrypted[IO]](tlsClient.decrypt(dataToClient1.data))
         bytesFromServer = resultFromServer.data.toBytes
         serverString = new String(bytesFromServer.values, bytesFromServer.offset, bytesFromServer.size)
 
-        _ <- cast[EncryptResult.Encrypted[Task]](hsToServer1.next)
-        dataToServer1 <- cast[EncryptResult.Encrypted[Task]](tlsClient.encrypt(data))
-        resultFromClient <- cast[DecryptResult.Decrypted[Task]](tlsServer.decrypt(dataToServer1.data))
+        _ <- cast[EncryptResult.Encrypted[IO]](hsToServer1.next)
+        dataToServer1 <- cast[EncryptResult.Encrypted[IO]](tlsClient.encrypt(data))
+        resultFromClient <- cast[DecryptResult.Decrypted[IO]](tlsServer.decrypt(dataToServer1.data))
         bytesFromClient = resultFromClient.data.toBytes
         clientString = new String(bytesFromClient.values, bytesFromClient.offset, bytesFromClient.size)
 
        } yield (clientString, serverString)
 
-    test.unsafeRun()  ?= (("Hello, World", "Hello, World"))
+    test.unsafeRunSync()  ?= (("Hello, World", "Hello, World"))
 
   }
 
@@ -136,8 +137,8 @@ object TLSEngineSpec  extends Properties("TLSEngine") {
     , send: Chunk[Byte] => F[Unit]
     , receive: Stream[F, Chunk[Byte]]
     , content: Stream[F, Chunk[Byte]]
-  )(implicit F: Async[F]): Stream[F, Chunk[Byte]] = {
-    Stream.eval(TLSEngine.mk[F](engine)) flatMap { tlsEngine =>
+  )(implicit F: Effect[F]): Stream[F, Chunk[Byte]] = {
+    Stream.eval(TLSEngine.mk[F](engine, sslEc)) flatMap { tlsEngine =>
       val encrypt = content.flatMap { data =>
         def go(result: EncryptResult[F]): Stream[F, Option[Chunk[Byte]]] = {
           result match {
@@ -163,12 +164,9 @@ object TLSEngineSpec  extends Properties("TLSEngine") {
 
           Stream.eval(tlsEngine.decrypt(data)) flatMap go
         }.unNoneTerminate
-        .scan(Chunk.empty: Chunk[Byte]) { case (acc, next) => Chunk.concatBytes(Seq(acc, next)) }
+        .scan(Chunk.empty: Chunk[Byte]) { case (acc, next) => concatBytes(acc, next) }
 
-      concurrent.join(Int.MaxValue)(Stream(
-        encrypt.drain
-        , decrypt
-      ))
+        decrypt.concurrently(encrypt)
     }
   }
 
@@ -181,8 +179,8 @@ object TLSEngineSpec  extends Properties("TLSEngine") {
     val sslServer = serverEngine
 
 
-    Stream.eval(async.unboundedQueue[Task, Chunk[Byte]]).flatMap { toServer =>
-    Stream.eval(async.unboundedQueue[Task, Chunk[Byte]]).flatMap { toClient =>
+    Stream.eval(async.unboundedQueue[IO, Chunk[Byte]]).flatMap { toServer =>
+    Stream.eval(async.unboundedQueue[IO, Chunk[Byte]]).flatMap { toClient =>
 
       val data = Stream.emit(Chunk.bytes(s.getBytes))
       def incomplete(chunk: Chunk[Byte]):Boolean = {
@@ -194,18 +192,18 @@ object TLSEngineSpec  extends Properties("TLSEngine") {
       }
 
       def chunkIt[F[_]](src: Stream[F, Chunk[Byte]]): Stream[F, Chunk[Byte]] =
-        src.flatMap(Stream.chunk).chunkLimit(chunkSz)
+        src.flatMap(Stream.chunk(_)).chunkLimit(chunkSz)
 
       val client =
-        tlsParty(sslClient, toServer.enqueue1, chunkIt(toClient.dequeue), data)
+        tlsParty[IO](sslClient, toServer.enqueue1, chunkIt(toClient.dequeue), data)
         .dropWhile(incomplete).take(1).map(mkString)
 
       val server =
-        tlsParty(sslServer, toClient.enqueue1, chunkIt(toServer.dequeue), data)
+        tlsParty[IO](sslServer, toClient.enqueue1, chunkIt(toServer.dequeue), data)
         .dropWhile(incomplete).take(1).map(mkString)
 
       client merge server
-    }}.runLog.unsafeRun() ?= Vector(s, s)
+    }}.runLog.unsafeRunSync() ?= Vector(s, s)
   }
 
 

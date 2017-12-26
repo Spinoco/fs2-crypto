@@ -3,13 +3,16 @@ package spinoco.fs2.crypto
 
 import javax.net.ssl.SSLEngine
 
+import cats.effect.Effect
+import cats.syntax.all._
 import fs2._
+import fs2.async.Ref
 import fs2.async.mutable.Semaphore
-import fs2.util.Async.Ref
-import fs2.util.{Async, Effect}
-import fs2.util.syntax._
-import spinoco.fs2.crypto.TLSEngine.{EncryptResult, DecryptResult}
+import spinoco.fs2.crypto.TLSEngine.{DecryptResult, EncryptResult}
 import spinoco.fs2.crypto.internal.{UnWrap, Wrap}
+import internal.util.concatBytes
+
+import scala.concurrent.ExecutionContext
 
 trait TLSEngine[F[_]] {
 
@@ -101,20 +104,29 @@ object TLSEngine {
   }
 
 
+  /**
+    * Creates an TLS engine
+    * @param engine underlying java engine
+    * @param sslEc  Execution context used for SSL operation in SSL Engine
+    * @param ec     Execution context for asynchronous operations.
+    * @tparam F
+    * @return
+    */
   def mk[F[_]](
     engine: SSLEngine
+    , sslEc: ExecutionContext
   )(
     implicit
-    F: Async[F]
-    , S: Strategy
+    F: Effect[F]
+    , ec: ExecutionContext
   ): F[TLSEngine[F]] = {
     implicit val ssl = engine
 
-    F.refOf(false) flatMap { hasWrapLock =>
+    async.refOf(false) flatMap { hasWrapLock =>
     async.semaphore[F](1) flatMap { wrapSem =>
     async.semaphore[F](1) flatMap { unWrapSem =>
-    Wrap.mk[F] flatMap { wrapEngine =>
-    UnWrap.mk[F] map { unWrapEngine =>
+    Wrap.mk[F](sslEc) flatMap { wrapEngine =>
+    UnWrap.mk[F](sslEc) map { unWrapEngine =>
 
       new TLSEngine[F] {
         def startHandshake: F[Unit] =
@@ -147,7 +159,7 @@ object TLSEngine {
       f.attempt flatMap { r =>
       semaphore.increment flatMap { _ => r match {
         case Right(a) => F.pure(a)
-        case Left(rsn) => F.fail(rsn)
+        case Left(rsn) => F.raiseError(rsn)
       }}}}
     }
 
@@ -155,7 +167,7 @@ object TLSEngine {
       data: Chunk[Byte]
       , wrapEngine: Wrap[F]
       , wrapSem: Semaphore[F]
-    )( implicit F: Async[F]): F[EncryptResult[F]] = {
+    )( implicit F: Effect[F]): F[EncryptResult[F]] = {
       wrapSem.decrement.flatMap { _ =>
         def go(data: Chunk[Byte]): F[EncryptResult[F]] = {
           wrapEngine.wrap(data).attempt flatMap {
@@ -168,7 +180,7 @@ object TLSEngine {
                 }
               }
 
-            case Left(err) => wrapSem.increment *> F.fail(err)
+            case Left(err) => wrapSem.increment >> F.raiseError(err)
           }
         }
 
@@ -183,7 +195,7 @@ object TLSEngine {
       , unwrapEngine: UnWrap[F]
       , wrapSem: Semaphore[F]
       , hasWrapLock: Ref[F, Boolean]
-    )(implicit F: Async[F], engine: SSLEngine): F[DecryptResult[F]] = {
+    )(implicit F: Effect[F], engine: SSLEngine): F[DecryptResult[F]] = {
       // releases wrap lock, if previously acquired
       def releaseWrapLock: F[Unit] = {
         wrapEngine.awaitsHandshake flatMap { awaitsHandshake =>
@@ -235,7 +247,7 @@ object TLSEngine {
         } else if (result.finished) {
           releaseWrapLock flatMap { _ =>
             unwrap(Chunk.empty, wrapEngine, unwrapEngine, wrapSem, hasWrapLock) map {
-              case DecryptResult.Decrypted(data) => DecryptResult.Decrypted(Chunk.concat(Seq(result.out, data)))
+              case DecryptResult.Decrypted(data) => DecryptResult.Decrypted(concatBytes(result.out, data))
               case otherResult => otherResult
             }
           }

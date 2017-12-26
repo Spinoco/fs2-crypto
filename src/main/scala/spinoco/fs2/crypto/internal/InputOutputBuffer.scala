@@ -4,8 +4,10 @@ import java.nio.ByteBuffer
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 import javax.net.ssl.SSLEngineResult
 
+import cats.effect.Effect
+import cats.syntax.all._
+
 import fs2.Chunk
-import fs2.util.Effect
 
 /**
   * Buffer that wraps two Input/Output buffers together and guards
@@ -69,12 +71,12 @@ private[crypto] object InputOutputBuffer {
           outBuff.get().clear()
           F.pure(())
         } else {
-          F.fail(new Throwable("input bytes allowed only when awaiting input"))
+          F.raiseError(new Throwable("input bytes allowed only when awaiting input"))
         }
       }
 
       def perform(f: (ByteBuffer, ByteBuffer) => SSLEngineResult): F[SSLEngineResult] = F.suspend {
-        if (awaitInput.get) F.fail(new Throwable("Perform cannot be invoked when awaiting input"))
+        if (awaitInput.get) F.raiseError(new Throwable("Perform cannot be invoked when awaiting input"))
         else {
           awaitInput.set(false)
           F.pure(f(inBuff.get, outBuff.get()))
@@ -98,7 +100,7 @@ private[crypto] object InputOutputBuffer {
           }
 
         } else {
-          F.fail(new Throwable("output bytes allowed only when not awaiting INput"))
+          F.raiseError(new Throwable("output bytes allowed only when not awaiting INput"))
         }
       }
 

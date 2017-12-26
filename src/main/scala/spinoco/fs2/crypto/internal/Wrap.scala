@@ -4,10 +4,12 @@ package spinoco.fs2.crypto.internal
 import javax.net.ssl.SSLEngine
 import javax.net.ssl.SSLEngineResult.{HandshakeStatus, Status}
 
+import cats.effect.Effect
+import cats.syntax.all._
 import fs2._
-import fs2.util.Async.Ref
-import fs2.util._
-import fs2.util.syntax._
+import fs2.async.Ref
+
+import scala.concurrent.ExecutionContext
 
 
 /**
@@ -31,10 +33,10 @@ private[crypto] trait Wrap[F[_]] {
 
 private[crypto] object Wrap {
 
-  def mk[F[_]](implicit engine: SSLEngine, F: Async[F], S: Strategy): F[Wrap[F]] = {
-    F.refOf[Option[F[Unit]]](None) flatMap { handshakeDoneRef =>
+  def mk[F[_]](sslEc: ExecutionContext)(implicit engine: SSLEngine, F: Effect[F], ec: ExecutionContext) : F[Wrap[F]] = {
+    async.refOf[F, Option[F[Unit]]](None) flatMap { handshakeDoneRef =>
     InputOutputBuffer.mk[F](engine.getSession.getPacketBufferSize, engine.getSession.getApplicationBufferSize) flatMap { ioBuff =>
-    SSLTaskRunner.mk[F](engine) map { implicit sslTaskRunner =>
+    SSLTaskRunner.mk[F](engine, sslEc) map { implicit sslTaskRunner =>
 
       new Wrap[F] {
         def wrap(data: Chunk[Byte]) = {
@@ -59,7 +61,7 @@ private[crypto] object Wrap {
     def wrap[F[_]](
       ioBuff: InputOutputBuffer[F]
       , handshakeDoneRef: Ref[F, Option[F[Unit]]]
-    )(implicit engine: SSLEngine, F: Async[F], RT: SSLTaskRunner[F]): F[WrapResult[F]] = {
+    )(implicit engine: SSLEngine, F: Effect[F], RT: SSLTaskRunner[F], ec: ExecutionContext): F[WrapResult[F]] = {
 
 
       ioBuff.perform(engine.wrap) flatMap { result =>
@@ -74,7 +76,7 @@ private[crypto] object Wrap {
             // than wrap
             // note that buffers are kept untouched, in case we recurse
             // also if nothing was produced, this will fail
-            if (result.bytesProduced() == 0) F.fail(new Throwable("Request to WRAP again, but no bytes were produced"))
+            if (result.bytesProduced() == 0) F.raiseError(new Throwable("Request to WRAP again, but no bytes were produced"))
             else wrap(ioBuff, handshakeDoneRef)
 
           case HandshakeStatus.NEED_UNWRAP =>
@@ -85,9 +87,9 @@ private[crypto] object Wrap {
             // in that case we will still signal next unwrap operation that may at this time
             // produce application data from appBuffer.
             ioBuff.output flatMap { chunk =>
-            F.ref[Unit] flatMap { signal =>
-            handshakeDoneRef.modify(_ => Some(signal.setPure(()))) map { c =>
-              WrapResult(Some(signal.get), chunk, closed = false)
+            async.promise[F, Unit] flatMap { promise =>
+            handshakeDoneRef.modify(_ => Some(promise.complete(()))) map { c =>
+              WrapResult(Some(promise.get), chunk, closed = false)
             }}}
 
           case HandshakeStatus.NEED_TASK =>
@@ -101,7 +103,7 @@ private[crypto] object Wrap {
             // wrap (wrap0) is consulted only when application is about to send data
             // it is impossible that we will write data and at the same time yield handshake to be finished.
             // so we rather fail
-            F.fail(new Throwable("bug: FINISHED after WRAP from App"))
+            F.raiseError(new Throwable("bug: FINISHED after WRAP from App"))
         }
 
         case Status.BUFFER_OVERFLOW =>

@@ -4,14 +4,17 @@ package spinoco.fs2.crypto.io.tcp
 import java.net.SocketAddress
 import javax.net.ssl.SSLEngine
 
+import cats.effect.Effect
+import cats.syntax.all._
+
 import fs2._
 import fs2.io.tcp.Socket
-import fs2.util.{Async, Catenable}
-import fs2.util.syntax._
 import spinoco.fs2.crypto.TLSEngine
 import spinoco.fs2.crypto.TLSEngine.{DecryptResult, EncryptResult}
+import spinoco.fs2.crypto.internal.util.concatBytes
 
 import scala.annotation.tailrec
+import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 
 trait TLSSocket[F[_]] extends Socket[F] {
@@ -24,9 +27,15 @@ trait TLSSocket[F[_]] extends Socket[F] {
 
 object TLSSocket {
 
-
-  def apply[F[_] : Async](socket: Socket[F], engine: SSLEngine)(implicit S: Strategy): F[TLSSocket[F]] = {
-    TLSEngine.mk(engine) flatMap { tlsEngine =>
+  /**
+    * Cretes an TLS Socket
+    * @param socket   TCP Socket that will be used as transport for TLS
+    * @param engine   SSL engine from jdk
+    * @param sslEc    An Execution context, that will be used to run SSL Engine's tasks.
+    * @param ec       Execution context for asynchronous Effect constructs
+    */
+  def apply[F[_] : Effect](socket: Socket[F], engine: SSLEngine, sslEc: ExecutionContext)(implicit ec: ExecutionContext): F[TLSSocket[F]] = {
+    TLSEngine.mk(engine, sslEc) flatMap { tlsEngine =>
       TLSSocket.mk(socket, tlsEngine)
     }
   }
@@ -49,10 +58,11 @@ object TLSSocket {
     socket: Socket[F]
     , tlsEngine: TLSEngine[F]
   )(
-    implicit F: Async[F]
+    implicit F: Effect[F]
+    , ec: ExecutionContext
   ): F[TLSSocket[F]] = {
     socket.localAddress.flatMap { local =>
-    F.refOf[Catenable[Chunk[Byte]]](Catenable.empty) flatMap { readBuffRef =>
+    async.refOf[F, Catenable[Chunk[Byte]]](Catenable.empty) flatMap { readBuffRef =>
     async.semaphore(1) map { readSem =>
 
       /** gets that much data from the buffer if available **/
@@ -126,18 +136,18 @@ object TLSSocket {
           readSem.decrement flatMap { _ =>
             def go(acc: Catenable[Chunk[Byte]]): F[Option[Chunk[Byte]]] = {
               val toRead = numBytes - acc.foldLeft(0)(_ + _.size)
-              if (toRead <= 0) F.pure(Some(Chunk.concatBytes(acc.toList)))
+              if (toRead <= 0) F.pure(Some(concatBytes(acc)))
               else {
                 read0(numBytes, timeout) flatMap {
                   case Some(chunk) => go(acc :+ chunk)
-                  case None => F.pure(Some(Chunk.concatBytes(acc.toList)))
+                  case None => F.pure(Some(concatBytes(acc)))
                 }
               }
             }
 
             go(Catenable.empty).attempt flatMap {
               case Right(r) => readSem.increment as r
-              case Left(err) => readSem.increment *> F.fail(err)
+              case Left(err) => readSem.increment *> F.raiseError(err)
             }
           }
         }
@@ -146,7 +156,7 @@ object TLSSocket {
           readSem.decrement flatMap { _ =>
           read0(maxBytes, timeout).attempt flatMap {
             case Right(r) => readSem.increment as r
-            case Left(err) => readSem.increment *> F.fail(err)
+            case Left(err) => readSem.increment *> F.raiseError(err)
           }}
         }
 
@@ -157,10 +167,10 @@ object TLSSocket {
               case EncryptResult.Encrypted(data) => socket.write(data, timeout)
 
               case EncryptResult.Handshake(data, next) =>
-                socket.write(data, timeout) flatMap { _ => F.start(readHandShake(timeout)) *> next flatMap go }
+                socket.write(data, timeout) flatMap { _ => async.start(readHandShake(timeout)) *> next flatMap go }
 
               case EncryptResult.Closed() =>
-                F.fail(new Throwable("TLS Engine is closed"))
+                F.raiseError(new Throwable("TLS Engine is closed"))
             }
           }
 
@@ -168,7 +178,7 @@ object TLSSocket {
         }
 
         def reads(maxBytes: Int, timeout: Option[FiniteDuration]): Stream[F, Byte] =
-          Stream.repeatEval(read(maxBytes, timeout)).unNoneTerminate.flatMap(Stream.chunk)
+          Stream.repeatEval(read(maxBytes, timeout)).unNoneTerminate.flatMap(Stream.chunk(_))
 
         def writes(timeout: Option[FiniteDuration]): Sink[F, Byte] =
           _.chunks.evalMap(write(_, timeout))
@@ -209,7 +219,7 @@ object TLSSocket {
     def takeFromBuff(buff: Catenable[Chunk[Byte]], max: Int): (Catenable[Chunk[Byte]], Chunk[Byte]) = {
       @tailrec
       def go(rem: Catenable[Chunk[Byte]], acc: Catenable[Chunk[Byte]], toGo: Int): (Catenable[Chunk[Byte]], Chunk[Byte]) = {
-        if (toGo <= 0) (rem, Chunk.concatBytes(acc.toList))
+        if (toGo <= 0) (rem, concatBytes(acc))
         else {
           rem.uncons match {
             case Some((head, tail)) =>

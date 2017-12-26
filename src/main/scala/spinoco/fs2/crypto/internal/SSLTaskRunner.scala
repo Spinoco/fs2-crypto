@@ -2,9 +2,10 @@ package spinoco.fs2.crypto.internal
 
 import javax.net.ssl.SSLEngine
 
-import fs2.Strategy
-import fs2.util.Async
-import fs2.util.syntax._
+import cats.effect.Effect
+import cats.syntax.all._
+
+import scala.concurrent.ExecutionContext
 
 private[crypto] trait SSLTaskRunner[F[_]] {
   def runTasks: F[Unit]
@@ -13,17 +14,17 @@ private[crypto] trait SSLTaskRunner[F[_]] {
 
 private[crypto] object SSLTaskRunner {
 
-  def mk[F[_]](engine: SSLEngine)(implicit F: Async[F], S: Strategy): F[SSLTaskRunner[F]] = F.delay {
+  def mk[F[_]](engine: SSLEngine, sslEc: ExecutionContext)(implicit F: Effect[F], ec: ExecutionContext): F[SSLTaskRunner[F]] = F.delay {
 
     new SSLTaskRunner[F] {
       def runTasks: F[Unit] = F.delay { Option(engine.getDelegatedTask) } flatMap {
-        case None => F.pure(())
+        case None => F.shift >> F.pure(()) // shift to execution context from SSL one
         case Some(engineTask) =>
           F.async[Unit] { cb =>
-            F.delay { S {
+            sslEc.execute (() => {
               try { engineTask.run(); cb(Right(())) }
               catch { case t : Throwable => cb(Left(t))}
-            }}
+            })
           } flatMap { _ => runTasks }
       }
     }

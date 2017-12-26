@@ -3,9 +3,12 @@ package spinoco.fs2.crypto.internal
 import javax.net.ssl.SSLEngine
 import javax.net.ssl.SSLEngineResult.{HandshakeStatus, Status}
 
-import fs2.util.Async
-import fs2.util.syntax._
-import fs2.{Chunk, Strategy}
+import cats.effect.Effect
+import cats.syntax.all._
+
+import fs2._
+
+import scala.concurrent.ExecutionContext
 
 /**
   * Simple interface for `UNWRAP` operations.
@@ -33,8 +36,8 @@ private[crypto] trait UnWrap[F[_]] {
 
 private[crypto] object UnWrap {
 
-  def mk[F[_]](implicit engine: SSLEngine, F: Async[F], S: Strategy): F[UnWrap[F]] = {
-    SSLTaskRunner.mk[F](engine) flatMap { implicit sslTaskRunner =>
+  def mk[F[_]](sslEc: ExecutionContext)(implicit engine: SSLEngine, F: Effect[F], ec: ExecutionContext): F[UnWrap[F]] = {
+    SSLTaskRunner.mk[F](engine, sslEc) flatMap { implicit sslTaskRunner =>
     InputOutputBuffer.mk[F](engine.getSession.getPacketBufferSize, engine.getSession.getApplicationBufferSize) flatMap { ioBuff =>
     InputOutputBuffer.mk[F](0, engine.getSession.getApplicationBufferSize) map { ioHsBuff =>
 
@@ -59,7 +62,7 @@ private[crypto] object UnWrap {
 
     def unwrap[F[_]](
       ioBuff: InputOutputBuffer[F]
-    )(implicit engine: SSLEngine, F: Async[F], RT: SSLTaskRunner[F]): F[UnWrapResult] = {
+    )(implicit engine: SSLEngine, F: Effect[F], RT: SSLTaskRunner[F]): F[UnWrapResult] = {
       ioBuff.perform(engine.unwrap) flatMap { result =>
         result.getStatus match {
           case Status.OK => result.getHandshakeStatus match {
@@ -123,14 +126,14 @@ private[crypto] object UnWrap {
 
     def wrap[F[_]](
       ioBuff: InputOutputBuffer[F]
-    )(implicit engine: SSLEngine, F: Async[F], RT: SSLTaskRunner[F]): F[HandshakeResult] = {
+    )(implicit engine: SSLEngine, F: Effect[F], RT: SSLTaskRunner[F]): F[HandshakeResult] = {
 
       ioBuff.perform(engine.wrap) flatMap { result =>
         result.getStatus match {
         case Status.OK => result.getHandshakeStatus match {
           case HandshakeStatus.NOT_HANDSHAKING =>
             // impossible during handshake
-            F.fail(new Throwable("bug: NOT_HANDSHAKING in HANDSHAKE. Handshake must be terminated with FINISHED"))
+            F.raiseError(new Throwable("bug: NOT_HANDSHAKING in HANDSHAKE. Handshake must be terminated with FINISHED"))
 
           case HandshakeStatus.NEED_WRAP =>
             // requires more wrap operations before this can exist.
@@ -160,7 +163,7 @@ private[crypto] object UnWrap {
 
         case Status.BUFFER_UNDERFLOW =>
           // impossible during handshake at wrap state
-          F.fail(new Throwable("bug: UNDERFLOW in HANDSHAKE: WRAP. Wrap is always supplied with empty data"))
+          F.raiseError(new Throwable("bug: UNDERFLOW in HANDSHAKE: WRAP. Wrap is always supplied with empty data"))
 
         case Status.CLOSED =>
           ioBuff.output map { send => HandshakeResult(send, closed = true, finished = false) }
