@@ -60,12 +60,11 @@ private[crypto] object UnWrap {
     def unwrap[F[_]](
       ioBuff: InputOutputBuffer[F]
     )(implicit engine: SSLEngine, F: Async[F], RT: SSLTaskRunner[F]): F[UnWrapResult] = {
-      ioBuff.perform ({ case (a, b) =>
+      ioBuff.perform ({ case (inBuffer, outBuffer) =>
         try {
-          F.delay(engine.unwrap(a, b))
+          Right(engine.unwrap(inBuffer, outBuffer))
         } catch {
-          case NonFatal(err) =>
-            F.fail(err)
+          case NonFatal(err) => Left(err)
         }
       }) flatMap { result =>
         result.getStatus match {
@@ -132,12 +131,11 @@ private[crypto] object UnWrap {
       ioBuff: InputOutputBuffer[F]
     )(implicit engine: SSLEngine, F: Async[F], RT: SSLTaskRunner[F]): F[HandshakeResult] = {
 
-      ioBuff.perform({ case (a, b) =>
+      ioBuff.perform({ case (inBuffer, outBuffer) =>
         try {
-          F.delay(engine.wrap(a, b))
+          Right(engine.wrap(inBuffer, outBuffer))
         } catch {
-          case NonFatal(err) =>
-            F.fail(err)
+          case NonFatal(err) => Left(err)
         }
       })  flatMap { result =>
         result.getStatus match {

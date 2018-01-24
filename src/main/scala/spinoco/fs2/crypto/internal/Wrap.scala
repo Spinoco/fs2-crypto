@@ -62,11 +62,11 @@ private[crypto] object Wrap {
     )(implicit engine: SSLEngine, F: Async[F], RT: SSLTaskRunner[F]): F[WrapResult[F]] = {
 
 
-      ioBuff.perform({ case (a, b) =>
+      ioBuff.perform({ case (inBuffer, outBuffer) =>
         try {
-          F.delay(engine.wrap(a, b))
+          Right(engine.wrap(inBuffer, outBuffer))
         } catch {
-          case NonFatal(err) => F.fail(err)
+          case NonFatal(err) => Left(err)
         }
       }) flatMap { result =>
         result.getStatus match {
