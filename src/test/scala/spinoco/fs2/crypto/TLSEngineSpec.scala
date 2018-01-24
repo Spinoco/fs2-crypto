@@ -170,7 +170,6 @@ object TLSEngineSpec  extends Properties("TLSEngine") {
     }
   }
 
-
   property("handshake.chunked") = forAll(Gen.choose(1, 1000)) { chunkSz =>
     val s = "Sample single Text" * 10
     val sBytes = s.getBytes
@@ -206,7 +205,38 @@ object TLSEngineSpec  extends Properties("TLSEngine") {
     }}.compile.toVector.unsafeRunSync() ?= Vector(s, s)
   }
 
+  property("buffer.resize.20KB") = protect {
+    val sslClient = clientEngine
+    val sslServer = serverEngine
 
+    val text = "Hello" * 4000
 
+    val data = Chunk.bytes(text.getBytes)
+
+    val test =
+      for {
+        tlsClient <- TLSEngine.mk[IO](sslClient, sslEc)
+        tlsServer <- TLSEngine.mk[IO](sslServer, sslEc)
+        hsToServer1 <- cast[EncryptResult.Handshake[IO]](tlsClient.encrypt(data))
+        hsToClient1 <- cast[DecryptResult.Handshake[IO]](tlsServer.decrypt(hsToServer1.data))
+        hsToServer2 <- cast[DecryptResult.Handshake[IO]](tlsClient.decrypt(hsToClient1.data))
+        hsToClient2 <- cast[DecryptResult.Handshake[IO]](tlsServer.decrypt(hsToServer2.data))
+        _ <- cast[DecryptResult.Decrypted[IO]](tlsClient.decrypt(hsToClient2.data))
+        _ <- cast[DecryptResult.Decrypted[IO]](hsToClient2.signalSent.get)
+        dataToServer1 <- cast[EncryptResult.Encrypted[IO]](hsToServer1.next)
+        resultFromClient <- cast[DecryptResult.Decrypted[IO]](tlsServer.decrypt(dataToServer1.data))
+
+        bytesFromClient = resultFromClient.data.toBytes
+        clientString = new String(bytesFromClient.values, bytesFromClient.offset, bytesFromClient.size)
+
+        dataToClient <- cast[EncryptResult.Encrypted[IO]](tlsServer.encrypt(data))
+        resultFromServer <- cast[DecryptResult.Decrypted[IO]](tlsClient.decrypt(dataToClient.data))
+
+        bytesFromServer = resultFromServer.data.toBytes
+        serverString = new String(bytesFromServer.values, bytesFromServer.offset, bytesFromServer.size)
+      } yield (clientString, serverString)
+
+    test.unsafeRunSync() ?= ((text, text))
+  }
 
 }

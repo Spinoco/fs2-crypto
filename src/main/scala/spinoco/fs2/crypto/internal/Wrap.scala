@@ -10,6 +10,7 @@ import fs2._
 import fs2.async.Ref
 
 import scala.concurrent.ExecutionContext
+import scala.util.control.NonFatal
 
 
 /**
@@ -64,11 +65,18 @@ private[crypto] object Wrap {
     )(implicit engine: SSLEngine, F: Effect[F], RT: SSLTaskRunner[F], ec: ExecutionContext): F[WrapResult[F]] = {
 
 
-      ioBuff.perform(engine.wrap) flatMap { result =>
+      ioBuff.perform({ case (a, b) =>
+        try { F.delay(engine.wrap(a, b)) }
+        catch { case NonFatal(err) => F.raiseError(err) }
+      }) flatMap { result =>
         result.getStatus match {
         case Status.OK => result.getHandshakeStatus match {
           case HandshakeStatus.NOT_HANDSHAKING =>
-            ioBuff.output map { chunk => WrapResult[F](None, chunk, closed = false) }
+            ioBuff.inputRemains.flatMap{ remaining =>
+              if (remaining <= 0) ioBuff.output map { chunk => WrapResult[F](None, chunk, closed = false) }
+              else wrap(ioBuff, handshakeDoneRef)
+            }
+
 
           case HandshakeStatus.NEED_WRAP =>
             // we need to drain all the bytes that may need wrap before we will move further

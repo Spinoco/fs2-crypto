@@ -5,10 +5,10 @@ import javax.net.ssl.SSLEngineResult.{HandshakeStatus, Status}
 
 import cats.effect.Effect
 import cats.syntax.all._
-
 import fs2._
 
 import scala.concurrent.ExecutionContext
+import scala.util.control.NonFatal
 
 /**
   * Simple interface for `UNWRAP` operations.
@@ -63,7 +63,10 @@ private[crypto] object UnWrap {
     def unwrap[F[_]](
       ioBuff: InputOutputBuffer[F]
     )(implicit engine: SSLEngine, F: Effect[F], RT: SSLTaskRunner[F]): F[UnWrapResult] = {
-      ioBuff.perform(engine.unwrap) flatMap { result =>
+      ioBuff.perform ({ case (a, b) =>
+        try { F.delay(engine.unwrap(a, b)) }
+        catch { case NonFatal(err) => F.raiseError(err) }
+      }) flatMap { result =>
         result.getStatus match {
           case Status.OK => result.getHandshakeStatus match {
             case HandshakeStatus.NOT_HANDSHAKING =>
@@ -128,7 +131,10 @@ private[crypto] object UnWrap {
       ioBuff: InputOutputBuffer[F]
     )(implicit engine: SSLEngine, F: Effect[F], RT: SSLTaskRunner[F]): F[HandshakeResult] = {
 
-      ioBuff.perform(engine.wrap) flatMap { result =>
+      ioBuff.perform({ case (a, b) =>
+        try { F.delay(engine.wrap(a, b)) }
+        catch { case NonFatal(err) => F.raiseError(err) }
+      })  flatMap { result =>
         result.getStatus match {
         case Status.OK => result.getHandshakeStatus match {
           case HandshakeStatus.NOT_HANDSHAKING =>
