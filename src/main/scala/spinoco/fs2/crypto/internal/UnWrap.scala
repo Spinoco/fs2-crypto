@@ -3,6 +3,7 @@ package spinoco.fs2.crypto.internal
 import javax.net.ssl.SSLEngine
 import javax.net.ssl.SSLEngineResult.{HandshakeStatus, Status}
 
+import cats.Monad
 import cats.effect.Effect
 import cats.syntax.all._
 import fs2._
@@ -60,12 +61,12 @@ private[crypto] object UnWrap {
 
   object impl {
 
-    def unwrap[F[_]](
+    def unwrap[F[_] : Monad](
       ioBuff: InputOutputBuffer[F]
-    )(implicit engine: SSLEngine, F: Effect[F], RT: SSLTaskRunner[F]): F[UnWrapResult] = {
-      ioBuff.perform ({ case (a, b) =>
-        try { F.delay(engine.unwrap(a, b)) }
-        catch { case NonFatal(err) => F.raiseError(err) }
+    )(implicit engine: SSLEngine, RT: SSLTaskRunner[F]): F[UnWrapResult] = {
+      ioBuff.perform ({ case (inBuffer, outBuffer) =>
+        try { Right(engine.unwrap(inBuffer, outBuffer)) }
+        catch { case NonFatal(err) => Left(err) }
       }) flatMap { result =>
         result.getStatus match {
           case Status.OK => result.getHandshakeStatus match {
@@ -131,9 +132,12 @@ private[crypto] object UnWrap {
       ioBuff: InputOutputBuffer[F]
     )(implicit engine: SSLEngine, F: Effect[F], RT: SSLTaskRunner[F]): F[HandshakeResult] = {
 
-      ioBuff.perform({ case (a, b) =>
-        try { F.delay(engine.wrap(a, b)) }
-        catch { case NonFatal(err) => F.raiseError(err) }
+      ioBuff.perform({ case (inBuffer, outBuffer) =>
+        try {
+          Right(engine.wrap(inBuffer, outBuffer))
+        } catch {
+          case NonFatal(err) => Left(err)
+        }
       })  flatMap { result =>
         result.getStatus match {
         case Status.OK => result.getHandshakeStatus match {

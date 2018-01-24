@@ -65,9 +65,12 @@ private[crypto] object Wrap {
     )(implicit engine: SSLEngine, F: Effect[F], RT: SSLTaskRunner[F], ec: ExecutionContext): F[WrapResult[F]] = {
 
 
-      ioBuff.perform({ case (a, b) =>
-        try { F.delay(engine.wrap(a, b)) }
-        catch { case NonFatal(err) => F.raiseError(err) }
+      ioBuff.perform({ case (inBuffer, outBuffer) =>
+        try {
+          Right(engine.wrap(inBuffer, outBuffer))
+        } catch {
+          case NonFatal(err) => Left(err)
+        }
       }) flatMap { result =>
         result.getStatus match {
         case Status.OK => result.getHandshakeStatus match {
