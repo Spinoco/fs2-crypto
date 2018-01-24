@@ -28,7 +28,7 @@ private[crypto] trait InputOutputBuffer[F[_]] {
   /**
     * Performs given operation. Buffer must not be awaiting input
     */
-  def perform(f: (ByteBuffer, ByteBuffer) => SSLEngineResult): F[SSLEngineResult]
+  def perform(f: (ByteBuffer, ByteBuffer) => Either[Throwable, SSLEngineResult]): F[SSLEngineResult]
 
   /**
     * Expands output buffer operation while copying all data eventually present in the buffer already
@@ -59,6 +59,7 @@ private[crypto] object InputOutputBuffer {
             else {
               val currBuff = inBuff.get()
               val nextBuff = ByteBuffer.allocate((currBuff.capacity() + data.size) max (currBuff.capacity() * 2))
+              inBuff.set(nextBuff)
               val copy = Array.ofDim[Byte](currBuff.position())
               currBuff.get(copy)
               nextBuff.put(copy)
@@ -73,11 +74,14 @@ private[crypto] object InputOutputBuffer {
         }
       }
 
-      def perform(f: (ByteBuffer, ByteBuffer) => SSLEngineResult): F[SSLEngineResult] = F.suspend {
+      def perform(f: (ByteBuffer, ByteBuffer) => Either[Throwable, SSLEngineResult]): F[SSLEngineResult] = F.suspend {
         if (awaitInput.get) F.fail(new Throwable("Perform cannot be invoked when awaiting input"))
         else {
           awaitInput.set(false)
-          F.pure(f(inBuff.get, outBuff.get()))
+          f(inBuff.get, outBuff.get) match {
+            case Left(err) => F.fail(err)
+            case Right(result) => F.pure(result)
+          }
         }
       }
 

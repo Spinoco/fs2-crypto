@@ -3,7 +3,7 @@ package spinoco.fs2.crypto.internal
 import javax.net.ssl.SSLEngine
 import javax.net.ssl.SSLEngineResult.{HandshakeStatus, Status}
 
-import fs2.util.Async
+import fs2.util.{Async, NonFatal}
 import fs2.util.syntax._
 import fs2.{Chunk, Strategy}
 
@@ -60,7 +60,13 @@ private[crypto] object UnWrap {
     def unwrap[F[_]](
       ioBuff: InputOutputBuffer[F]
     )(implicit engine: SSLEngine, F: Async[F], RT: SSLTaskRunner[F]): F[UnWrapResult] = {
-      ioBuff.perform(engine.unwrap) flatMap { result =>
+      ioBuff.perform ({ case (inBuffer, outBuffer) =>
+        try {
+          Right(engine.unwrap(inBuffer, outBuffer))
+        } catch {
+          case NonFatal(err) => Left(err)
+        }
+      }) flatMap { result =>
         result.getStatus match {
           case Status.OK => result.getHandshakeStatus match {
             case HandshakeStatus.NOT_HANDSHAKING =>
@@ -125,7 +131,13 @@ private[crypto] object UnWrap {
       ioBuff: InputOutputBuffer[F]
     )(implicit engine: SSLEngine, F: Async[F], RT: SSLTaskRunner[F]): F[HandshakeResult] = {
 
-      ioBuff.perform(engine.wrap) flatMap { result =>
+      ioBuff.perform({ case (inBuffer, outBuffer) =>
+        try {
+          Right(engine.wrap(inBuffer, outBuffer))
+        } catch {
+          case NonFatal(err) => Left(err)
+        }
+      })  flatMap { result =>
         result.getStatus match {
         case Status.OK => result.getHandshakeStatus match {
           case HandshakeStatus.NOT_HANDSHAKING =>
