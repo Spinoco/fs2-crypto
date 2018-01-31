@@ -70,7 +70,7 @@ object TLSSocketSpec extends Properties("TLSSocket") {
       .dropWhile { ch => ch.size < size }
       .take(1)
 
-    val collected = result.runLog.unsafeRunSync().map { ch => val bs = ch.toBytes; new String(bs.values, bs.offset, bs.size) }
+    val collected = result.compile.toVector.unsafeRunSync().map { ch => val bs = ch.toBytes; new String(bs.values, bs.offset, bs.size) }
 
     collected ?= Vector(data.mkString)
 

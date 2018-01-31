@@ -31,9 +31,9 @@ lazy val commonSettings = Seq(
   scalacOptions in (Test, console) := (scalacOptions in (Compile, console)).value,
   libraryDependencies ++= Seq(
     compilerPlugin("org.spire-math" %% "kind-projector" % "0.9.4"),
-    "co.fs2" %% "fs2-core" % "0.10.0-M10",
-    "co.fs2" %% "fs2-io" % "0.10.0-M10",
-    "com.chuusai" %% "shapeless" % "2.3.2" % "test",
+    "co.fs2" %% "fs2-core" % "0.10.0",
+    "co.fs2" %% "fs2-io" % "0.10.0",
+    "com.chuusai" %% "shapeless" % "2.3.3" % "test",
     "org.scalacheck" %%% "scalacheck" % "1.13.5" % "test"
   ),
   scmInfo := Some(ScmInfo(url("https://github.com/Spinoco/fs2-crypto"), "git@github.com:Spinoco/fs2-crypto.git")),

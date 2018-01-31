@@ -203,7 +203,7 @@ object TLSEngineSpec  extends Properties("TLSEngine") {
         .dropWhile(incomplete).take(1).map(mkString)
 
       client merge server
-    }}.runLog.unsafeRunSync() ?= Vector(s, s)
+    }}.compile.toVector.unsafeRunSync() ?= Vector(s, s)
   }
 
 
