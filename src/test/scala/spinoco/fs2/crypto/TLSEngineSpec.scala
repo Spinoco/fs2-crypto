@@ -195,13 +195,13 @@ object TLSEngineSpec  extends Properties("TLSEngine") {
 
       val client =
         tlsParty[IO](sslClient, toServer.enqueue1, chunkIt(toClient.dequeue), data)
-        .dropWhile(incomplete).take(1).map(mkString)
+        .dropWhile(incomplete).map(mkString)
 
       val server =
         tlsParty[IO](sslServer, toClient.enqueue1, chunkIt(toServer.dequeue), data)
-        .dropWhile(incomplete).take(1).map(mkString)
+        .dropWhile(incomplete).map(mkString)
 
-      client merge server
+      (client merge server).take(2)
     }}.compile.toVector.unsafeRunSync() ?= Vector(s, s)
   }
 
