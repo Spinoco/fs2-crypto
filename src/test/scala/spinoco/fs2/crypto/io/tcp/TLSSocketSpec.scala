@@ -54,16 +54,17 @@ object TLSSocketSpec extends Properties("TLSSocket") {
 
 
     val client =
-      Sch.sleep[IO](50.millis) flatMap { _ =>
+      Sch.sleep[IO](50.millis) >>
       io.tcp.client[IO](serverAddress) flatMap { socket =>
         Stream.eval(TLSEngine.mk[IO](sslClientEngine, sslEc)) flatMap { tlsEngine =>
         Stream.eval(TLSSocket.mk(socket, tlsEngine)) flatMap { tlsSocket =>
           (input evalMap { ch => tlsSocket.write(ch, None) }).drain ++
           tlsSocket.reads(1024, None)
         }}
-      }}
+      }
 
     val result =
+      Sch.sleep[IO](100.millis) >>
       client.concurrently(server)
       .chunks
       .scan[Chunk[Byte]](Chunk.empty)({ case (acc, next) => concatBytes(acc, next) })
