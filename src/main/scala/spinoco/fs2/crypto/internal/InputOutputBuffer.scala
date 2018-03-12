@@ -61,12 +61,12 @@ private[crypto] object InputOutputBuffer {
               val nextBuff = ByteBuffer.allocate((currBuff.capacity() + data.size) max (currBuff.capacity() * 2))
               inBuff.set(nextBuff)
               val copy = Array.ofDim[Byte](currBuff.position())
+              currBuff.flip()
               currBuff.get(copy)
               nextBuff.put(copy)
             }
           val bs = data.toBytes
           buff.put(bs.values, bs.offset, bs.size)
-          buff.flip()
           outBuff.get().clear()
           F.pure(())
         } else {
