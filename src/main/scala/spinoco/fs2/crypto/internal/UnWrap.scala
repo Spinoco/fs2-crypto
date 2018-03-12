@@ -41,7 +41,7 @@ private[crypto] object UnWrap {
       new UnWrap[F] {
         def unwrap(data: Chunk[Byte]) = {
           ioBuff.input(data) flatMap { _ =>
-            impl.unwrap(ioBuff, true)
+            impl.unwrap(ioBuff)
           }
         }
 
@@ -59,11 +59,9 @@ private[crypto] object UnWrap {
 
     def unwrap[F[_]](
       ioBuff: InputOutputBuffer[F]
-      , flipInBuffer: Boolean
     )(implicit engine: SSLEngine, F: Async[F], RT: SSLTaskRunner[F]): F[UnWrapResult] = {
       ioBuff.perform ({ case (inBuffer, outBuffer) =>
         try {
-          if (flipInBuffer) inBuffer.flip
           Right(engine.unwrap(inBuffer, outBuffer))
         } catch {
           case NonFatal(err) => Left(err)
@@ -77,7 +75,7 @@ private[crypto] object UnWrap {
               // we will consume data from both frames
               ioBuff.inputRemains flatMap { remains =>
                 if (remains <= 0) ioBuff.output map { appData => UnWrapResult(appData, closed = false, needWrap = false, finished = false, handshaking = false) }
-                else unwrap(ioBuff, false)
+                else unwrap(ioBuff)
               }
 
             case HandshakeStatus.NEED_WRAP =>
@@ -93,14 +91,14 @@ private[crypto] object UnWrap {
               // however exit with unwrap, if there was no data consumed, that indicates more data needs to be
               // read from the network
 
-              if (result.bytesConsumed() != 0) unwrap(ioBuff, false)
+              if (result.bytesConsumed() != 0) unwrap(ioBuff)
               else ioBuff.output map { appData => UnWrapResult(appData, closed = false, needWrap = false, finished = false, handshaking = true) }
 
             case HandshakeStatus.NEED_TASK =>
               // Engine requires asynchronous tasks to be run, we will wait till they are run
               // to perform wrap again.
               // runTasks synchronization relies on SSL Engine.
-              RT.runTasks flatMap { _ => unwrap(ioBuff, false) }
+              RT.runTasks flatMap { _ => unwrap(ioBuff) }
 
             case HandshakeStatus.FINISHED =>
               // handshake has been finished.
@@ -112,7 +110,7 @@ private[crypto] object UnWrap {
           case Status.BUFFER_OVERFLOW =>
             // need more spec for application data
             // expand app buffer and retry
-            ioBuff.expandOutput flatMap { _ => unwrap(ioBuff, false) }
+            ioBuff.expandOutput flatMap { _ => unwrap(ioBuff) }
 
           case Status.BUFFER_UNDERFLOW =>
             // we don't have enough data to form TLS Record

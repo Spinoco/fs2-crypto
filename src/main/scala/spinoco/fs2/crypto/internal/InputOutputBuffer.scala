@@ -6,6 +6,7 @@ import javax.net.ssl.SSLEngineResult
 
 import fs2.Chunk
 import fs2.util.Effect
+import fs2.util.syntax._
 
 /**
   * Buffer that wraps two Input/Output buffers together and guards
@@ -54,21 +55,18 @@ private[crypto] object InputOutputBuffer {
 
       def input(data: Chunk[Byte]): F[Unit] = F.suspend {
         if (awaitInput.compareAndSet(true, false)) {
-          val buff =
-            if (inBuff.get.remaining() >= data.size) inBuff.get()
-            else {
-              val currBuff = inBuff.get()
-              val nextBuff = ByteBuffer.allocate((currBuff.capacity() + data.size) max (currBuff.capacity() * 2))
-              inBuff.set(nextBuff)
-              val copy = Array.ofDim[Byte](currBuff.position())
-              currBuff.flip()
-              currBuff.get(copy)
-              nextBuff.put(copy)
-            }
-          val bs = data.toBytes
-          buff.put(bs.values, bs.offset, bs.size)
-          outBuff.get().clear()
-          F.pure(())
+          val in = inBuff.get
+          val expanded =
+            if (in.remaining() >= data.size) F.pure(in)
+            else expandBuffer(in, capacity => (capacity + data.size) max (capacity * 2))
+
+          expanded.map { buff =>
+            inBuff.set(buff)
+            val bs = data.toBytes
+            buff.put(bs.values, bs.offset, bs.size)
+            buff.flip()
+            outBuff.get().clear()
+          } as (())
         } else {
           F.fail(new Throwable("input bytes allowed only when awaiting input"))
         }
@@ -106,16 +104,16 @@ private[crypto] object InputOutputBuffer {
         }
       }
 
+      def expandBuffer(buffer: ByteBuffer, resizeTo: Int => Int): F[ByteBuffer] = F.suspend {
+        val copy = Array.ofDim[Byte](buffer.position())
+        val next = ByteBuffer.allocate(resizeTo(buffer.capacity()))
+        buffer.flip()
+        buffer.get(copy)
+        F.pure(next.put(copy))
+      }
 
-      def expandOutput: F[Unit] = F.suspend {
-        val curr = outBuff.get()
-        val sz = curr.position()
-        val next = ByteBuffer.allocate(curr.capacity() * 2)
-        val copy = Array.ofDim[Byte](sz)
-        curr.flip()
-        curr.get(copy)
-        next.put(copy)
-        F.pure(outBuff.set(next))
+      def expandOutput: F[Unit] = {
+        expandBuffer(outBuff.get, _ * 2).map(outBuff.set(_))
       }
 
       def inputRemains =

@@ -39,7 +39,7 @@ private[crypto] object Wrap {
       new Wrap[F] {
         def wrap(data: Chunk[Byte]) = {
           ioBuff.input(data) flatMap { _ =>
-            impl.wrap[F](ioBuff, handshakeDoneRef, true)
+            impl.wrap[F](ioBuff, handshakeDoneRef)
           }
         }
 
@@ -59,12 +59,11 @@ private[crypto] object Wrap {
     def wrap[F[_]](
       ioBuff: InputOutputBuffer[F]
       , handshakeDoneRef: Ref[F, Option[F[Unit]]]
-      , flipInBuffer: Boolean
     )(implicit engine: SSLEngine, F: Async[F], RT: SSLTaskRunner[F]): F[WrapResult[F]] = {
+
 
       ioBuff.perform({ case (inBuffer, outBuffer) =>
         try {
-          if (flipInBuffer) inBuffer.flip()
           Right(engine.wrap(inBuffer, outBuffer))
         } catch {
           case NonFatal(err) => Left(err)
@@ -75,7 +74,7 @@ private[crypto] object Wrap {
           case HandshakeStatus.NOT_HANDSHAKING =>
             ioBuff.inputRemains.flatMap{ remaining =>
               if (remaining <= 0) ioBuff.output map { chunk => WrapResult[F](None, chunk, closed = false) }
-              else wrap(ioBuff, handshakeDoneRef, false)
+              else wrap(ioBuff, handshakeDoneRef)
             }
 
 
@@ -86,7 +85,7 @@ private[crypto] object Wrap {
             // note that buffers are kept untouched, in case we recurse
             // also if nothing was produced, this will fail
             if (result.bytesProduced() == 0) F.fail(new Throwable("Request to WRAP again, but no bytes were produced"))
-            else wrap(ioBuff, handshakeDoneRef, false)
+            else wrap(ioBuff, handshakeDoneRef)
 
           case HandshakeStatus.NEED_UNWRAP =>
             // indicates that handshake is in process and we need to output
@@ -106,7 +105,7 @@ private[crypto] object Wrap {
             // this operation may be invoked from wrap/unwrap side. We rely on SSL engine
             // also note that NEED_TASK alway only consumed elements, never actually
             // when the tasks are run, then this is again run to  perform `unwrap`
-            RT.runTasks flatMap { _ => wrap(ioBuff, handshakeDoneRef, false) }
+            RT.runTasks flatMap { _ => wrap(ioBuff, handshakeDoneRef) }
 
           case HandshakeStatus.FINISHED =>
             // wrap (wrap0) is consulted only when application is about to send data
@@ -117,7 +116,7 @@ private[crypto] object Wrap {
 
         case Status.BUFFER_OVERFLOW =>
           // need to increase the target buffer and retry operation
-          ioBuff.expandOutput flatMap { _ => wrap(ioBuff, handshakeDoneRef, false) }
+          ioBuff.expandOutput flatMap { _ => wrap(ioBuff, handshakeDoneRef) }
 
         case Status.BUFFER_UNDERFLOW =>
           // indicates not enough input data
