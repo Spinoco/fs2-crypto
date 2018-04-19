@@ -225,10 +225,8 @@ object TLSEngineSpec  extends Properties("TLSEngine") {
         _ <- cast[DecryptResult.Decrypted[IO]](hsToClient2.signalSent.get)
         dataToServer1 <- cast[EncryptResult.Encrypted[IO]](hsToServer1.next)
         resultFromClient <- cast[DecryptResult.Decrypted[IO]](tlsServer.decrypt(dataToServer1.data))
-
         bytesFromClient = resultFromClient.data.toBytes
         clientString = new String(bytesFromClient.values, bytesFromClient.offset, bytesFromClient.size)
-
         dataToClient <- cast[EncryptResult.Encrypted[IO]](tlsServer.encrypt(data))
         resultFromServer <- cast[DecryptResult.Decrypted[IO]](tlsClient.decrypt(dataToClient.data))
 
