@@ -1,8 +1,7 @@
 package spinoco.fs2.crypto.internal
 
 import javax.net.ssl.SSLEngine
-
-import cats.effect.Effect
+import cats.effect.{Async, Effect}
 import cats.syntax.all._
 
 import scala.concurrent.ExecutionContext
@@ -18,7 +17,7 @@ private[crypto] object SSLTaskRunner {
 
     new SSLTaskRunner[F] {
       def runTasks: F[Unit] = F.delay { Option(engine.getDelegatedTask) } flatMap {
-        case None => F.shift >> F.pure(()) // shift to execution context from SSL one
+        case None => Async.shift(ec) >> F.pure(()) // shift to execution context from SSL one
         case Some(engineTask) =>
           F.async[Unit] { cb =>
             sslEc.execute (() => {
