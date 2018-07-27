@@ -167,7 +167,7 @@ object TLSSocket {
               case EncryptResult.Encrypted(data) => socket.write(data, timeout)
 
               case EncryptResult.Handshake(data, next) =>
-                socket.write(data, timeout) flatMap { _ => async.start(readHandShake(timeout)) *> next flatMap go }
+                socket.write(data, timeout) flatMap { _ => readHandShake(timeout) *> next flatMap go }
 
               case EncryptResult.Closed() =>
                 F.raiseError(new Throwable("TLS Engine is closed"))
