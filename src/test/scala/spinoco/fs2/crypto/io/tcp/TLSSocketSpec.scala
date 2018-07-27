@@ -3,12 +3,13 @@ package spinoco.fs2.crypto.io.tcp
 
 import java.net.InetSocketAddress
 
-import cats.effect.IO
+import cats.effect.{IO, Timer}
 
 import concurrent.duration._
 import fs2._
 import org.scalacheck.{Arbitrary, Gen, Properties}
 import org.scalacheck.Prop._
+
 import spinoco.fs2.crypto.TLSEngine
 import spinoco.fs2.crypto.internal.util.concatBytes
 
@@ -45,17 +46,17 @@ object TLSSocketSpec extends Properties("TLSSocket") {
 
     val server =
       (io.tcp.server[IO](serverAddress) map { connected =>
-      connected.flatMap { socket =>
+        Stream.resource(connected).flatMap { socket =>
         Stream.eval(TLSEngine.mk[IO](sslServerEngine, sslEc)) flatMap { tlsEngine =>
         Stream.eval(TLSSocket.mk(socket, tlsEngine)) flatMap { tlsSocket =>
           tlsSocket.reads(1024) to tlsSocket.writes(None)
-        }}
-      }}).join(Int.MaxValue)
+        }}}
+      }).join(Int.MaxValue)
 
 
     val client =
-      Sch.sleep[IO](50.millis) >>
-      io.tcp.client[IO](serverAddress) flatMap { socket =>
+      Stream.eval(Timer[IO].sleep(50.millis)) >>
+      Stream.resource(io.tcp.client[IO](serverAddress)).flatMap { socket =>
         Stream.eval(TLSEngine.mk[IO](sslClientEngine, sslEc)) flatMap { tlsEngine =>
         Stream.eval(TLSSocket.mk(socket, tlsEngine)) flatMap { tlsSocket =>
           (input evalMap { ch => tlsSocket.write(ch, None) }).drain ++
@@ -64,7 +65,7 @@ object TLSSocketSpec extends Properties("TLSSocket") {
       }
 
     val result =
-      Sch.sleep[IO](100.millis) >>
+      Stream.eval(Timer[IO].sleep(100.millis)) >>
       client.concurrently(server)
       .chunks
       .scan[Chunk[Byte]](Chunk.empty)({ case (acc, next) => concatBytes(acc, next) })

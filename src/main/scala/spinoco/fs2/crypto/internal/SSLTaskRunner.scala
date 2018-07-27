@@ -1,32 +1,29 @@
 package spinoco.fs2.crypto.internal
 
+import cats.Applicative
 import javax.net.ssl.SSLEngine
-
-import cats.effect.Effect
+import cats.effect.{Concurrent, Sync, Timer}
 import cats.syntax.all._
+import simulacrum.typeclass
 
 import scala.concurrent.ExecutionContext
 
-private[crypto] trait SSLTaskRunner[F[_]] {
+@typeclass
+protected[crypto] trait SSLTaskRunner[F[_]] {
   def runTasks: F[Unit]
 }
 
 
-private[crypto] object SSLTaskRunner {
+protected[crypto] object SSLTaskRunner {
 
-  def mk[F[_]](engine: SSLEngine, sslEc: ExecutionContext)(implicit F: Effect[F], ec: ExecutionContext): F[SSLTaskRunner[F]] = F.delay {
+  def mk[F[_] : Concurrent : Timer](engine: SSLEngine, sslEc: ExecutionContext): F[SSLTaskRunner[F]] = Sync[F].delay {
 
     new SSLTaskRunner[F] {
-      def runTasks: F[Unit] = F.delay { Option(engine.getDelegatedTask) } flatMap {
-        case None => F.shift >> F.pure(()) // shift to execution context from SSL one
-        case Some(engineTask) =>
-          F.async[Unit] { cb =>
-            sslEc.execute (() => {
-              try { engineTask.run(); cb(Right(())) }
-              catch { case t : Throwable => cb(Left(t))}
-            })
-          } flatMap { _ => runTasks }
-      }
+      def runTasks: F[Unit] =
+        util.evalOn(sslEc)(Sync[F].delay { Option(engine.getDelegatedTask)  }).flatMap {
+          case None => Applicative[F].unit
+          case Some(task) => util.evalOn(sslEc)(Sync[F].delay { task.run() }) >> runTasks
+        }
     }
   }
 

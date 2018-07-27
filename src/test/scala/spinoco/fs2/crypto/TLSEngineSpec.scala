@@ -2,14 +2,14 @@ package spinoco.fs2.crypto
 
 
 import javax.net.ssl.SSLEngine
-
-import cats.effect.{Effect, IO}
+import cats.effect.{Concurrent, IO, Timer}
 import fs2._
 import shapeless.Typeable
 
 import scala.reflect.ClassTag
 import org.scalacheck._
 import org.scalacheck.Prop._
+
 import spinoco.fs2.crypto.TLSEngine.{DecryptResult, EncryptResult}
 import spinoco.fs2.crypto.internal.util.concatBytes
 
@@ -132,12 +132,12 @@ object TLSEngineSpec  extends Properties("TLSEngine") {
 
   }
 
-  def tlsParty[F[_]](
+  def tlsParty[F[_] : Concurrent : Timer](
     engine: SSLEngine
     , send: Chunk[Byte] => F[Unit]
     , receive: Stream[F, Chunk[Byte]]
     , content: Stream[F, Chunk[Byte]]
-  )(implicit F: Effect[F]): Stream[F, Chunk[Byte]] = {
+  ): Stream[F, Chunk[Byte]] = {
     Stream.eval(TLSEngine.mk[F](engine, sslEc)) flatMap { tlsEngine =>
       val encrypt = content.flatMap { data =>
         def go(result: EncryptResult[F]): Stream[F, Option[Chunk[Byte]]] = {

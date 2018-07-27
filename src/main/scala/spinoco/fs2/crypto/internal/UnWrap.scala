@@ -2,9 +2,8 @@ package spinoco.fs2.crypto.internal
 
 import javax.net.ssl.SSLEngine
 import javax.net.ssl.SSLEngineResult.{HandshakeStatus, Status}
-
 import cats.Monad
-import cats.effect.Effect
+import cats.effect.{Concurrent, Sync, Timer}
 import cats.syntax.all._
 import fs2._
 
@@ -37,7 +36,7 @@ private[crypto] trait UnWrap[F[_]] {
 
 private[crypto] object UnWrap {
 
-  def mk[F[_]](sslEc: ExecutionContext)(implicit engine: SSLEngine, F: Effect[F], ec: ExecutionContext): F[UnWrap[F]] = {
+  def mk[F[_] : Concurrent : Timer](sslEc: ExecutionContext)(implicit engine: SSLEngine): F[UnWrap[F]] = {
     SSLTaskRunner.mk[F](engine, sslEc) flatMap { implicit sslTaskRunner =>
     InputOutputBuffer.mk[F](engine.getSession.getPacketBufferSize, engine.getSession.getApplicationBufferSize) flatMap { ioBuff =>
     InputOutputBuffer.mk[F](0, engine.getSession.getApplicationBufferSize) map { ioHsBuff =>
@@ -128,9 +127,9 @@ private[crypto] object UnWrap {
     }
 
 
-    def wrap[F[_]](
+    def wrap[F[_] : SSLTaskRunner : Sync](
       ioBuff: InputOutputBuffer[F]
-    )(implicit engine: SSLEngine, F: Effect[F], RT: SSLTaskRunner[F]): F[HandshakeResult] = {
+    )(implicit engine: SSLEngine): F[HandshakeResult] = {
 
       ioBuff.perform({ case (inBuffer, outBuffer) =>
         try {
@@ -143,7 +142,7 @@ private[crypto] object UnWrap {
         case Status.OK => result.getHandshakeStatus match {
           case HandshakeStatus.NOT_HANDSHAKING =>
             // impossible during handshake
-            F.raiseError(new Throwable("bug: NOT_HANDSHAKING in HANDSHAKE. Handshake must be terminated with FINISHED"))
+            Sync[F].raiseError(new Throwable("bug: NOT_HANDSHAKING in HANDSHAKE. Handshake must be terminated with FINISHED"))
 
           case HandshakeStatus.NEED_WRAP =>
             // requires more wrap operations before this can exist.
@@ -159,7 +158,7 @@ private[crypto] object UnWrap {
 
           case HandshakeStatus.NEED_TASK =>
             // during the handshake we may need again to run tasks
-            RT.runTasks flatMap { _ => wrap(ioBuff) }
+            SSLTaskRunner[F].runTasks flatMap { _ => wrap(ioBuff) }
 
           case HandshakeStatus.FINISHED =>
             // indicates handshake is completed, and we shall move on and resume normal operation
@@ -173,7 +172,7 @@ private[crypto] object UnWrap {
 
         case Status.BUFFER_UNDERFLOW =>
           // impossible during handshake at wrap state
-          F.raiseError(new Throwable("bug: UNDERFLOW in HANDSHAKE: WRAP. Wrap is always supplied with empty data"))
+          Sync[F].raiseError(new Throwable("bug: UNDERFLOW in HANDSHAKE: WRAP. Wrap is always supplied with empty data"))
 
         case Status.CLOSED =>
           ioBuff.output map { send => HandshakeResult(send, closed = true, finished = false) }

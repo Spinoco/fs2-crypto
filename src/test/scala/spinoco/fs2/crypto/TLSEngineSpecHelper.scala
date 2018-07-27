@@ -3,19 +3,19 @@ package spinoco.fs2.crypto
 import java.nio.channels.AsynchronousChannelGroup
 import java.security.KeyStore
 import java.util.concurrent.Executors
-import javax.net.ssl.{KeyManagerFactory, SSLContext, SSLEngine, TrustManagerFactory}
 
-import fs2._
+import cats.effect.{Concurrent, IO, Timer}
+import javax.net.ssl.{KeyManagerFactory, SSLContext, SSLEngine, TrustManagerFactory}
 
 import scala.concurrent.ExecutionContext
 
 
 object TLSEngineSpecHelper {
 
-  implicit val ec = ExecutionContext.Implicits.global
   val sslEc = ExecutionContext.Implicits.global
-  implicit val Sch = Scheduler.fromScheduledExecutorService(Executors.newScheduledThreadPool(4))
   implicit val AG = AsynchronousChannelGroup.withThreadPool(Executors.newCachedThreadPool())
+  implicit val _timer: Timer[IO] = IO.timer(ExecutionContext.Implicits.global)
+  implicit val _concurrent: Concurrent[IO] = IO.ioConcurrentEffect(_timer)
 
   lazy val sslCtx = {
     val keyStore = KeyStore.getInstance("jks")
