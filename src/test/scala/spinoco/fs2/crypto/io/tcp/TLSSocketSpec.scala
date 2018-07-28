@@ -51,7 +51,7 @@ object TLSSocketSpec extends Properties("TLSSocket") {
         Stream.eval(TLSSocket.mk(socket, tlsEngine)) flatMap { tlsSocket =>
           tlsSocket.reads(1024) to tlsSocket.writes(None)
         }}}
-      }).join(Int.MaxValue)
+      }).parJoinUnbounded
 
 
     val client =
