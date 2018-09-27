@@ -20,5 +20,5 @@ env:
     - COURSIER_PROGRESS=0
 
 script:
-  - sbt ++$TRAVIS_SCALA_VERSION -Dfile.encoding=UTF8 test mimaReportBinaryIssues
+  - sbt ++$TRAVIS_SCALA_VERSION -Dfile.encoding=UTF8 test
 
