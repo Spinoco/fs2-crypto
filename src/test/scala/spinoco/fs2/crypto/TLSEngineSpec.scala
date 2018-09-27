@@ -2,14 +2,14 @@ package spinoco.fs2.crypto
 
 
 import javax.net.ssl.SSLEngine
-import cats.effect.{Concurrent, IO, Timer}
+import cats.effect.{Concurrent, ContextShift, IO}
 import fs2._
+import fs2.concurrent.Queue
 import shapeless.Typeable
 
 import scala.reflect.ClassTag
 import org.scalacheck._
 import org.scalacheck.Prop._
-
 import spinoco.fs2.crypto.TLSEngine.{DecryptResult, EncryptResult}
 import spinoco.fs2.crypto.internal.util.concatBytes
 
@@ -132,7 +132,7 @@ object TLSEngineSpec  extends Properties("TLSEngine") {
 
   }
 
-  def tlsParty[F[_] : Concurrent : Timer](
+  def tlsParty[F[_] : Concurrent : ContextShift](
     engine: SSLEngine
     , send: Chunk[Byte] => F[Unit]
     , receive: Stream[F, Chunk[Byte]]
@@ -178,8 +178,8 @@ object TLSEngineSpec  extends Properties("TLSEngine") {
     val sslServer = serverEngine
 
 
-    Stream.eval(async.unboundedQueue[IO, Chunk[Byte]]).flatMap { toServer =>
-    Stream.eval(async.unboundedQueue[IO, Chunk[Byte]]).flatMap { toClient =>
+    Stream.eval(Queue.unbounded[IO, Chunk[Byte]]).flatMap { toServer =>
+    Stream.eval(Queue.unbounded[IO, Chunk[Byte]]).flatMap { toClient =>
 
       val data = Stream.emit(Chunk.bytes(s.getBytes))
       def incomplete(chunk: Chunk[Byte]):Boolean = {

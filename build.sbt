@@ -33,8 +33,8 @@ lazy val commonSettings = Seq(
     compilerPlugin("org.spire-math" %% "kind-projector" % "0.9.4"),
     compilerPlugin("org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.full),
     "com.github.mpilquist" %% "simulacrum" % "0.13.0",
-    "co.fs2" %% "fs2-core" % "1.0.0-M2",
-    "co.fs2" %% "fs2-io" % "1.0.0-M2",
+    "co.fs2" %% "fs2-core" % "1.0.0-RC1",
+    "co.fs2" %% "fs2-io" % "1.0.0-RC1",
     "com.chuusai" %% "shapeless" % "2.3.3" % "test",
     "org.scalacheck" %%% "scalacheck" % "1.13.5" % "test"
   ),
@@ -45,8 +45,6 @@ lazy val commonSettings = Seq(
     import fs2._
     import scala.concurrent.ExecutionContext.Implicits.global
   """,
-  doctestWithDependencies := false,
-  doctestTestFramework := DoctestTestFramework.ScalaTest
 ) ++ testSettings ++ scaladocSettings ++ publishingSettings ++ releaseSettings
 
 lazy val testSettings = Seq(
@@ -147,13 +145,6 @@ lazy val releaseSettings = Seq(
   releasePublishArtifactsAction := PgpKeys.publishSigned.value
 )
 
-lazy val mimaSettings = Seq(
-  mimaPreviousArtifacts := previousVersion(version.value).map { pv =>
-    organization.value % (normalizedName.value + "_" + scalaBinaryVersion.value) % pv
-  }.toSet,
-  mimaBinaryIssueFilters ++= Seq(
-  )
-)
 
 def previousVersion(currentVersion: String): Option[String] = {
   val Version = """(\d+)\.(\d+)\.(\d+).*""".r

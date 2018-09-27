@@ -4,16 +4,17 @@ package spinoco.fs2.crypto.io.tcp
 import java.net.SocketAddress
 
 import cats.Applicative
+import cats.data.Chain
 import cats.effect.concurrent.{Ref, Semaphore}
 import javax.net.ssl.SSLEngine
-import cats.effect.{Bracket, Concurrent, Sync, Timer}
+import cats.effect._
 import cats.syntax.all._
 import fs2._
 import fs2.io.tcp.Socket
-
 import spinoco.fs2.crypto.TLSEngine
 import spinoco.fs2.crypto.TLSEngine.{DecryptResult, EncryptResult}
 import spinoco.fs2.crypto.internal.util.concatBytes
+
 import scala.annotation.tailrec
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
@@ -34,7 +35,7 @@ object TLSSocket {
     * @param engine   SSL engine from jdk
     * @param sslEc    An Execution context, that will be used to run SSL Engine's tasks.
     */
-  def apply[F[_] : Concurrent : Timer](socket: Socket[F], engine: SSLEngine, sslEc: ExecutionContext): F[TLSSocket[F]] = {
+  def apply[F[_] : Concurrent : ContextShift](socket: Socket[F], engine: SSLEngine, sslEc: ExecutionContext): F[TLSSocket[F]] = {
     TLSEngine.mk(engine, sslEc) flatMap { tlsEngine =>
       TLSSocket.mk(socket, tlsEngine)
     }
@@ -54,12 +55,11 @@ object TLSSocket {
     * @param socket               Raw TCP Socket
     * @param tlsEngine            An TSLEngine to use
     */
-  def mk[F[_]: Concurrent : Timer](
+  def mk[F[_]: Concurrent : ContextShift](
     socket: Socket[F]
     , tlsEngine: TLSEngine[F]
   ): F[TLSSocket[F]] = {
-    socket.localAddress.flatMap { local =>
-    Ref.of[F, Catenable[Chunk[Byte]]](Catenable.empty) flatMap { readBuffRef =>
+    Ref.of[F, Chain[Chunk[Byte]]](Chain.empty) flatMap { readBuffRef =>
     Semaphore(1) map { readSem =>
 
       /** gets that much data from the buffer if available **/
@@ -130,7 +130,7 @@ object TLSSocket {
         def readN(numBytes: Int, timeout: Option[FiniteDuration]): F[Option[Chunk[Byte]]] = {
           readSem.acquire >>
           Bracket[F, Throwable].guarantee({
-            def go(acc: Catenable[Chunk[Byte]]): F[Option[Chunk[Byte]]] = {
+            def go(acc: Chain[Chunk[Byte]]): F[Option[Chunk[Byte]]] = {
               val toRead = numBytes - acc.foldLeft(0)(_ + _.size)
               if (toRead <= 0) Applicative[F].pure(Some(concatBytes(acc)))
               else {
@@ -141,7 +141,7 @@ object TLSSocket {
               }
             }
 
-            go(Catenable.empty)
+            go(Chain.empty)
           })(readSem.release)
         }
 
@@ -168,7 +168,7 @@ object TLSSocket {
         }
 
         def reads(maxBytes: Int, timeout: Option[FiniteDuration]): Stream[F, Byte] =
-          Stream.repeatEval(read(maxBytes, timeout)).unNoneTerminate.flatMap(Stream.chunk(_))
+          Stream.repeatEval(read(maxBytes, timeout)).unNoneTerminate.flatMap(Stream.chunk)
 
         def writes(timeout: Option[FiniteDuration]): Sink[F, Byte] =
           _.chunks.evalMap(write(_, timeout))
@@ -199,16 +199,16 @@ object TLSSocket {
 
       }
 
-    }}}
+    }}
 
   }
 
 
   private[tcp] object impl {
 
-    def takeFromBuff(buff: Catenable[Chunk[Byte]], max: Int): (Catenable[Chunk[Byte]], Chunk[Byte]) = {
+    def takeFromBuff(buff: Chain[Chunk[Byte]], max: Int): (Chain[Chunk[Byte]], Chunk[Byte]) = {
       @tailrec
-      def go(rem: Catenable[Chunk[Byte]], acc: Catenable[Chunk[Byte]], toGo: Int): (Catenable[Chunk[Byte]], Chunk[Byte]) = {
+      def go(rem: Chain[Chunk[Byte]], acc: Chain[Chunk[Byte]], toGo: Int): (Chain[Chunk[Byte]], Chunk[Byte]) = {
         if (toGo <= 0) (rem, concatBytes(acc))
         else {
           rem.uncons match {
@@ -225,8 +225,8 @@ object TLSSocket {
         }
       }
 
-      if (buff.isEmpty) (Catenable.empty, Chunk.empty)
-      else go(buff, Catenable.empty, max)
+      if (buff.isEmpty) (Chain.empty, Chunk.empty)
+      else go(buff, Chain.empty, max)
     }
 
   }

@@ -3,7 +3,7 @@ package spinoco.fs2.crypto.io.tcp
 
 import java.net.InetSocketAddress
 
-import cats.effect.{IO, Timer}
+import cats.effect.IO
 
 import concurrent.duration._
 import fs2._
@@ -55,7 +55,7 @@ object TLSSocketSpec extends Properties("TLSSocket") {
 
 
     val client =
-      Stream.eval(Timer[IO].sleep(50.millis)) >>
+      Stream.sleep[IO](50.millis) >>
       Stream.resource(io.tcp.client[IO](serverAddress)).flatMap { socket =>
         Stream.eval(TLSEngine.mk[IO](sslClientEngine, sslEc)) flatMap { tlsEngine =>
         Stream.eval(TLSSocket.mk(socket, tlsEngine)) flatMap { tlsSocket =>
@@ -65,7 +65,7 @@ object TLSSocketSpec extends Properties("TLSSocket") {
       }
 
     val result =
-      Stream.eval(Timer[IO].sleep(100.millis)) >>
+      Stream.sleep[IO](100.millis) >>
       client.concurrently(server)
       .chunks
       .scan[Chunk[Byte]](Chunk.empty)({ case (acc, next) => concatBytes(acc, next) })

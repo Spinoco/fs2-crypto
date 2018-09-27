@@ -3,7 +3,7 @@ package spinoco.fs2.crypto.internal
 import javax.net.ssl.SSLEngine
 import javax.net.ssl.SSLEngineResult.{HandshakeStatus, Status}
 import cats.Monad
-import cats.effect.{Concurrent, Sync, Timer}
+import cats.effect.{Concurrent, ContextShift, Sync}
 import cats.syntax.all._
 import fs2._
 
@@ -36,7 +36,7 @@ private[crypto] trait UnWrap[F[_]] {
 
 private[crypto] object UnWrap {
 
-  def mk[F[_] : Concurrent : Timer](sslEc: ExecutionContext)(implicit engine: SSLEngine): F[UnWrap[F]] = {
+  def mk[F[_] : Concurrent : ContextShift](sslEc: ExecutionContext)(implicit engine: SSLEngine): F[UnWrap[F]] = {
     SSLTaskRunner.mk[F](engine, sslEc) flatMap { implicit sslTaskRunner =>
     InputOutputBuffer.mk[F](engine.getSession.getPacketBufferSize, engine.getSession.getApplicationBufferSize) flatMap { ioBuff =>
     InputOutputBuffer.mk[F](0, engine.getSession.getApplicationBufferSize) map { ioHsBuff =>

@@ -3,7 +3,7 @@ package spinoco.fs2.crypto
 
 import cats.{Applicative, Monad}
 import javax.net.ssl.SSLEngine
-import cats.effect.{Concurrent, Sync, Timer}
+import cats.effect.{Concurrent, ContextShift, Sync}
 import cats.effect.concurrent.{Ref, Semaphore}
 import cats.syntax.all._
 import fs2._
@@ -110,7 +110,7 @@ object TLSEngine {
     * @tparam F
     * @return
     */
-  def mk[F[_] : Concurrent : Timer](
+  def mk[F[_] : Concurrent : ContextShift](
     engine: SSLEngine
     , sslEc: ExecutionContext
   ): F[TLSEngine[F]] = {
