@@ -29,15 +29,18 @@ trait TLSSocket[F[_]] extends Socket[F] {
 
 object TLSSocket {
 
+  @inline def apply[F[_]](implicit instance: TLSSocket[F]): TLSSocket[F] = instance
+
+
   /**
     * Cretes an TLS Socket
     * @param socket   TCP Socket that will be used as transport for TLS
     * @param engine   SSL engine from jdk
     * @param sslEc    An Execution context, that will be used to run SSL Engine's tasks.
     */
-  def apply[F[_] : Concurrent : ContextShift](socket: Socket[F], engine: SSLEngine, sslEc: ExecutionContext): F[TLSSocket[F]] = {
-    TLSEngine.mk(engine, sslEc) flatMap { tlsEngine =>
-      TLSSocket.mk(socket, tlsEngine)
+  def instance[F[_] : Concurrent : ContextShift](socket: Socket[F], engine: SSLEngine, sslEc: ExecutionContext): F[TLSSocket[F]] = {
+    TLSEngine.instance(engine, sslEc) flatMap { tlsEngine =>
+      TLSSocket.instance(socket, tlsEngine)
     }
   }
 
@@ -55,7 +58,7 @@ object TLSSocket {
     * @param socket               Raw TCP Socket
     * @param tlsEngine            An TSLEngine to use
     */
-  def mk[F[_]: Concurrent : ContextShift](
+  def instance[F[_]: Concurrent : ContextShift](
     socket: Socket[F]
     , tlsEngine: TLSEngine[F]
   ): F[TLSSocket[F]] = {

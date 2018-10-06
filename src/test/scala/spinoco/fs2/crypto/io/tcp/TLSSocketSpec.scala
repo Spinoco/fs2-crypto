@@ -47,8 +47,8 @@ object TLSSocketSpec extends Properties("TLSSocket") {
     val server =
       (io.tcp.server[IO](serverAddress) map { connected =>
         Stream.resource(connected).flatMap { socket =>
-        Stream.eval(TLSEngine.mk[IO](sslServerEngine, sslEc)) flatMap { tlsEngine =>
-        Stream.eval(TLSSocket.mk(socket, tlsEngine)) flatMap { tlsSocket =>
+        Stream.eval(TLSEngine.instance[IO](sslServerEngine, sslEc)) flatMap { tlsEngine =>
+        Stream.eval(TLSSocket.instance(socket, tlsEngine)) flatMap { tlsSocket =>
           tlsSocket.reads(1024) to tlsSocket.writes(None)
         }}}
       }).parJoinUnbounded
@@ -57,8 +57,8 @@ object TLSSocketSpec extends Properties("TLSSocket") {
     val client =
       Stream.sleep[IO](50.millis) >>
       Stream.resource(io.tcp.client[IO](serverAddress)).flatMap { socket =>
-        Stream.eval(TLSEngine.mk[IO](sslClientEngine, sslEc)) flatMap { tlsEngine =>
-        Stream.eval(TLSSocket.mk(socket, tlsEngine)) flatMap { tlsSocket =>
+        Stream.eval(TLSEngine.instance[IO](sslClientEngine, sslEc)) flatMap { tlsEngine =>
+        Stream.eval(TLSSocket.instance(socket, tlsEngine)) flatMap { tlsSocket =>
           (input evalMap { ch => tlsSocket.write(ch, None) }).drain ++
           tlsSocket.reads(1024, None)
         }}

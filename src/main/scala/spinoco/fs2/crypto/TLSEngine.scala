@@ -7,10 +7,10 @@ import cats.effect.{Concurrent, ContextShift, Sync}
 import cats.effect.concurrent.{Ref, Semaphore}
 import cats.syntax.all._
 import fs2._
-
 import spinoco.fs2.crypto.TLSEngine.{DecryptResult, EncryptResult}
 import spinoco.fs2.crypto.internal.{UnWrap, Wrap}
 import internal.util.concatBytes
+
 import scala.concurrent.ExecutionContext
 
 trait TLSEngine[F[_]] {
@@ -55,6 +55,8 @@ trait TLSEngine[F[_]] {
 
 
 object TLSEngine {
+
+  @inline def apply[F[_]](implicit instance: TLSEngine[F]): TLSEngine[F] = instance
 
   sealed trait EncryptResult[F[_]]
 
@@ -110,7 +112,7 @@ object TLSEngine {
     * @tparam F
     * @return
     */
-  def mk[F[_] : Concurrent : ContextShift](
+  def instance[F[_] : Concurrent : ContextShift](
     engine: SSLEngine
     , sslEc: ExecutionContext
   ): F[TLSEngine[F]] = {

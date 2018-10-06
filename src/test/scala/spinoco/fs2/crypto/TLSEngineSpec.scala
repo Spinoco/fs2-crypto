@@ -33,8 +33,8 @@ object TLSEngineSpec  extends Properties("TLSEngine") {
 
     val test =
       for {
-        tlsClient <- TLSEngine.mk[IO](sslClient, sslEc)
-        tlsServer <- TLSEngine.mk[IO](sslServer, sslEc)
+        tlsClient <- TLSEngine.instance[IO](sslClient, sslEc)
+        tlsServer <- TLSEngine.instance[IO](sslServer, sslEc)
         hsToServer1 <- cast[EncryptResult.Handshake[IO]](tlsClient.encrypt(data))
         hsToClient1 <- cast[DecryptResult.Handshake[IO]](tlsServer.decrypt(hsToServer1.data))
         hsToServer2 <- cast[DecryptResult.Handshake[IO]](tlsClient.decrypt(hsToClient1.data))
@@ -66,8 +66,8 @@ object TLSEngineSpec  extends Properties("TLSEngine") {
 
     val test =
       for {
-        tlsClient <- TLSEngine.mk[IO](sslClient, sslEc)
-        tlsServer <- TLSEngine.mk[IO](sslServer, sslEc)
+        tlsClient <- TLSEngine.instance[IO](sslClient, sslEc)
+        tlsServer <- TLSEngine.instance[IO](sslServer, sslEc)
         hsToServer1 <- cast[EncryptResult.Handshake[IO]](tlsClient.encrypt(data))
         // now we will send to server only partial data for the handshake,
         hsToClient1InComplete <- cast[DecryptResult.Handshake[IO]](tlsServer.decrypt(hsToServer1.data.take(1)))
@@ -104,8 +104,8 @@ object TLSEngineSpec  extends Properties("TLSEngine") {
 
     val test =
       for {
-        tlsClient <- TLSEngine.mk[IO](sslClient, sslEc)
-        tlsServer <- TLSEngine.mk[IO](sslServer, sslEc)
+        tlsClient <- TLSEngine.instance[IO](sslClient, sslEc)
+        tlsServer <- TLSEngine.instance[IO](sslServer, sslEc)
         hsToClient0 <- cast[EncryptResult.Handshake[IO]](tlsServer.encrypt(data))
         // client must send hello, in order for server to read data
         // as such we initiate client with empty chunk of data
@@ -138,7 +138,7 @@ object TLSEngineSpec  extends Properties("TLSEngine") {
     , receive: Stream[F, Chunk[Byte]]
     , content: Stream[F, Chunk[Byte]]
   ): Stream[F, Chunk[Byte]] = {
-    Stream.eval(TLSEngine.mk[F](engine, sslEc)) flatMap { tlsEngine =>
+    Stream.eval(TLSEngine.instance[F](engine, sslEc)) flatMap { tlsEngine =>
       val encrypt = content.flatMap { data =>
         def go(result: EncryptResult[F]): Stream[F, Option[Chunk[Byte]]] = {
           result match {
@@ -215,8 +215,8 @@ object TLSEngineSpec  extends Properties("TLSEngine") {
 
     val test =
       for {
-        tlsClient <- TLSEngine.mk[IO](sslClient, sslEc)
-        tlsServer <- TLSEngine.mk[IO](sslServer, sslEc)
+        tlsClient <- TLSEngine.instance[IO](sslClient, sslEc)
+        tlsServer <- TLSEngine.instance[IO](sslServer, sslEc)
         hsToServer1 <- cast[EncryptResult.Handshake[IO]](tlsClient.encrypt(data))
         hsToClient1 <- cast[DecryptResult.Handshake[IO]](tlsServer.decrypt(hsToServer1.data))
         hsToServer2 <- cast[DecryptResult.Handshake[IO]](tlsClient.decrypt(hsToClient1.data))
