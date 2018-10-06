@@ -16,7 +16,7 @@ This library adds sport of TLS for  fs2 programs. Library provides two levels of
 Add this to your sbt build file :
 
 ```
-libraryDependencies += "com.spinoco" %% "fs2-crypto" % "0.2.0"
+libraryDependencies += "com.spinoco" %% "fs2-crypto" % "0.4.0"
 ```
 
 ### Dependencies
