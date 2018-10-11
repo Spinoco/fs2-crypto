@@ -1,4 +1,3 @@
-import com.typesafe.sbt.pgp.PgpKeys.publishSigned
 import sbtrelease.Version
 
 val ReleaseTag = """^release/([\d\.]+a?)$""".r
@@ -17,6 +16,7 @@ lazy val commonSettings = Seq(
     "-language:higherKinds",
     "-language:existentials",
     "-language:postfixOps",
+    "-Yrangepos",
     "-Ypartial-unification"
   ) ++
     (if (scalaBinaryVersion.value startsWith "2.12") List(
@@ -123,7 +123,6 @@ lazy val commonJsSettings = Seq(
         options.withParallel(false)
     }
   },
-  requiresDOM := false,
   scalaJSStage in Test := FastOptStage,
   jsEnv := new org.scalajs.jsenv.nodejs.NodeJSEnv(),
   scalacOptions in Compile += {
@@ -133,12 +132,15 @@ lazy val commonJsSettings = Seq(
   }
 )
 
-lazy val noPublish = Seq(
-  publish := (),
-  publishLocal := (),
-  publishSigned := (),
-  publishArtifact := false
-)
+lazy val noPublish = {
+  import com.typesafe.sbt.pgp.PgpKeys.publishSigned
+  Seq(
+    publish := {},
+    publishLocal := {},
+    publishSigned := {},
+    publishArtifact := false
+  )
+}
 
 lazy val releaseSettings = Seq(
   releaseCrossBuild := true,
