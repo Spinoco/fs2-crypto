@@ -9,35 +9,18 @@ lazy val contributors = Seq(
 
 lazy val commonSettings = Seq(
   organization := "com.spinoco",
-  scalacOptions ++= Seq(
-    "-feature",
-    "-deprecation",
-    "-language:implicitConversions",
-    "-language:higherKinds",
-    "-language:existentials",
-    "-language:postfixOps",
-    "-Yrangepos",
-    "-Ypartial-unification"
-  ) ++
-    (if (scalaBinaryVersion.value startsWith "2.12") List(
-      "-Xlint",
-      "-Xfatal-warnings",
-      "-Yno-adapted-args",
-      "-Ywarn-value-discard",
-      "-Ywarn-unused-import"
-    ) else Nil) ++ (if (scalaBinaryVersion.value startsWith "2.11") List("-Xexperimental") else Nil), // 2.11 needs -Xexperimental to enable SAM conversion
+  scalacOptions ++= commonScalacOptions(scalaVersion.value),
   scalacOptions in (Compile, console) ~= {_.filterNot("-Ywarn-unused-import" == _).filterNot("-Xlint" == _).filterNot("-Xfatal-warnings" == _)},
   scalacOptions in (Compile, console) += "-Ydelambdafy:inline",
   scalacOptions in (Test, console) := (scalacOptions in (Compile, console)).value,
+  addCompilerPlugin("org.typelevel" %% "kind-projector" % "0.10.3"),
   libraryDependencies ++= Seq(
-    compilerPlugin("org.spire-math" %% "kind-projector" % "0.9.4"),
-    compilerPlugin("org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.full),
-    "com.github.mpilquist" %% "simulacrum" % "0.13.0",
-    "co.fs2" %% "fs2-core" % "1.0.0",
-    "co.fs2" %% "fs2-io" % "1.0.0",
+    "com.github.mpilquist" %% "simulacrum" % "0.19.0",
+    "co.fs2" %% "fs2-core" % "1.1.0-M1",
+    "co.fs2" %% "fs2-io" % "1.1.0-M1",
     "com.chuusai" %% "shapeless" % "2.3.3" % "test",
-    "org.scalacheck" %%% "scalacheck" % "1.13.5" % "test"
-  ),
+    "org.scalacheck" %%% "scalacheck" % "1.14.0" % "test"
+  ) ++ macroDependencies(scalaVersion.value),
   scmInfo := Some(ScmInfo(url("https://github.com/Spinoco/fs2-crypto"), "git@github.com:Spinoco/fs2-crypto.git")),
   homepage := Some(url("https://https://github.com/Spinoco/fs2-crypto")),
   licenses += ("MIT", url("http://opensource.org/licenses/MIT")),
@@ -45,13 +28,54 @@ lazy val commonSettings = Seq(
     import fs2._
     import scala.concurrent.ExecutionContext.Implicits.global
   """,
-) ++ testSettings ++ scaladocSettings ++ publishingSettings ++ releaseSettings
+)  ++ testSettings ++ scaladocSettings ++ publishingSettings ++ releaseSettings
 
 lazy val testSettings = Seq(
   parallelExecution in Test := false,
   testOptions in Test += Tests.Argument(TestFrameworks.ScalaTest, "-oDF"),
   publishArtifact in Test := true
 )
+
+def macroDependencies(scalaVersion: String) = 
+  CrossVersion.partialVersion(scalaVersion) match {
+    case Some((2, minor)) if minor < 13 =>
+      Seq(
+        compilerPlugin(("org.scalamacros" %% "paradise" % "2.1.1").cross(CrossVersion.patch))
+      )
+    case _ => Seq()
+  }
+
+def commonScalacOptions(scalaVersion: String) =
+  Seq(
+    "-encoding",
+    "UTF-8",
+    "-feature",
+    "-language:existentials",
+    "-language:higherKinds",
+    "-language:implicitConversions",
+    "-language:experimental.macros",
+    "-language:postfixOps",
+    "-unchecked",
+    "-Ywarn-dead-code",
+    "-Ywarn-numeric-widen",
+    "-Ywarn-value-discard",
+    "-Xfuture"
+  ) ++ (if (priorTo2_13(scalaVersion))
+          Seq(
+            "-Yno-adapted-args",
+            "-Xfatal-warnings", // TODO: add the following two back to 2.13 (deprecation?)
+            "-deprecation"
+          )
+        else
+          Seq(
+            "-Ymacro-annotations"
+          ))
+
+def priorTo2_13(scalaVersion: String): Boolean =
+  CrossVersion.partialVersion(scalaVersion) match {
+    case Some((2, minor)) if minor < 13 => true
+    case _                              => false
+}
 
 def scmBranch(v: String): String = {
   val Some(ver) = Version(v)

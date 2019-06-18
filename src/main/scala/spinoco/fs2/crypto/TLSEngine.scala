@@ -9,7 +9,7 @@ import cats.syntax.all._
 import fs2._
 import spinoco.fs2.crypto.TLSEngine.{DecryptResult, EncryptResult}
 import spinoco.fs2.crypto.internal.{UnWrap, Wrap}
-import internal.util.concatBytes
+import spinoco.fs2.crypto.internal.util.concatBytes
 
 import scala.concurrent.ExecutionContext
 
