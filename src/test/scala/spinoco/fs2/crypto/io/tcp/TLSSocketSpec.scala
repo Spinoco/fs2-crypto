@@ -35,13 +35,14 @@ object TLSSocketSpec extends Properties("TLSSocket") {
     val sslServerEngine = serverEngine
     val sslClientEngine = clientEngine
 
-    val size = data.map(_.getBytes.length).sum
+    val charset = java.nio.charset.StandardCharsets.UTF_16LE
+    val size = data.map(_.getBytes(charset).length).sum
 
     val input: Stream[IO, Chunk[Byte]] =
       Stream.emit(Chunk.bytes(Array.ofDim[Byte](0))).covary[IO] ++
       Stream.emits(data).flatMap { s =>
         if (s.isEmpty) Stream.empty
-        else Stream.emit(Chunk.bytes(s.getBytes))
+        else Stream.emit(Chunk.bytes(s.getBytes(charset)))
       }
 
     val server =
@@ -72,7 +73,7 @@ object TLSSocketSpec extends Properties("TLSSocket") {
       .dropWhile { ch => ch.size < size }
       .take(1)
 
-    val collected = result.compile.toVector.unsafeRunSync().map { ch => val bs = ch.toBytes; new String(bs.values, bs.offset, bs.size) }
+    val collected = result.compile.toVector.unsafeRunSync().map { ch => val bs = ch.toBytes; new String(bs.values, bs.offset, bs.size, charset) }
 
     collected ?= Vector(data.mkString)
 
