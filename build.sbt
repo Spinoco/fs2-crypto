@@ -15,7 +15,7 @@ lazy val commonSettings = Seq(
   scalacOptions in (Test, console) := (scalacOptions in (Compile, console)).value,
   addCompilerPlugin("org.typelevel" %% "kind-projector" % "0.10.3"),
   libraryDependencies ++= Seq(
-    "com.github.mpilquist" %% "simulacrum" % "0.19.0",
+    "com.github.mpilquist" %% "simulacrum" % "0.19.0" % Provided,
     "co.fs2" %% "fs2-core" % "2.0.0",
     "co.fs2" %% "fs2-io" % "2.0.0",
     "com.chuusai" %% "shapeless" % "2.3.3" % "test",
