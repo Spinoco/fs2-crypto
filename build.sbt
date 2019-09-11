@@ -16,8 +16,8 @@ lazy val commonSettings = Seq(
   addCompilerPlugin("org.typelevel" %% "kind-projector" % "0.10.3"),
   libraryDependencies ++= Seq(
     "com.github.mpilquist" %% "simulacrum" % "0.19.0",
-    "co.fs2" %% "fs2-core" % "1.1.0-M1",
-    "co.fs2" %% "fs2-io" % "1.1.0-M1",
+    "co.fs2" %% "fs2-core" % "2.0.0",
+    "co.fs2" %% "fs2-io" % "2.0.0",
     "com.chuusai" %% "shapeless" % "2.3.3" % "test",
     "org.scalacheck" %%% "scalacheck" % "1.14.0" % "test"
   ) ++ macroDependencies(scalaVersion.value),
