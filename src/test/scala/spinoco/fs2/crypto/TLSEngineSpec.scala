@@ -158,7 +158,7 @@ object TLSEngineSpec  extends Properties("TLSEngine") {
             result match {
               case DecryptResult.Decrypted(data) => Stream.emit(Some(data))
               case DecryptResult.Handshake(data, next) => Stream.eval_(send(data)) ++ Stream.emits(next.toSeq).evalMap(identity).flatMap(go)
-              case DecryptResult.Closed() => Stream.emit(None)
+              case DecryptResult.Closed(out) => Stream.emit(Some(out))
             }
           }
 
