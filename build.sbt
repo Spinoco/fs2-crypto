@@ -1,4 +1,3 @@
-import com.typesafe.sbt.pgp.PgpKeys.publishSigned
 import sbtrelease.Version
 
 val ReleaseTag = """^release/([\d\.]+a?)$""".r
@@ -45,7 +44,6 @@ lazy val commonSettings = Seq(
     import fs2._
     import scala.concurrent.ExecutionContext.Implicits.global
   """,
-  doctestWithDependencies := false,
   doctestTestFramework := DoctestTestFramework.ScalaTest
 ) ++ testSettings ++ scaladocSettings ++ publishingSettings ++ releaseSettings
 
@@ -135,16 +133,8 @@ lazy val commonJsSettings = Seq(
   }
 )
 
-lazy val noPublish = Seq(
-  publish := (),
-  publishLocal := (),
-  publishSigned := (),
-  publishArtifact := false
-)
-
 lazy val releaseSettings = Seq(
   releaseCrossBuild := true,
-  releasePublishArtifactsAction := PgpKeys.publishSigned.value
 )
 
 lazy val mimaSettings = Seq(
