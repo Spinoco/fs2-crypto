@@ -72,8 +72,14 @@ object TLSEngine {
       * @param data     data to be sent as a result of the handshake
       * @param next     Evaluates to next step to take during handshake process.
       *                 When this evaluates to Encrypted() again, the handshake is complete.
+      * @param handleError  When an error occurres in the handshake, this will handle the error
+      *                     in the [[Wrap]] engine.
       */
-    case class Handshake[F[_]](data: Chunk[Byte], next: F[EncryptResult[F]]) extends EncryptResult[F]
+    case class Handshake[F[_]](
+      data: Chunk[Byte]
+      , next: F[EncryptResult[F]]
+      , handleError: Throwable => F[Unit]
+    ) extends EncryptResult[F]
 
   }
 
@@ -175,7 +181,12 @@ object TLSEngine {
               else {
                 result.awaitAfterSend match {
                   case None => Applicative[F].pure(EncryptResult.Encrypted(result.out))
-                  case Some(await) => Applicative[F].pure(EncryptResult.Handshake(result.out, await flatMap { _ => go(Chunk.empty) }))
+                  case Some(await) => Applicative[F].pure(
+                    EncryptResult.Handshake(
+                      result.out //Initial handshake data.
+                      , await flatMap { _ => go(Chunk.empty) } // Await and go to make sure all data are flushed from wrap engine after handshake
+                      , err => wrapEngine.handshakeComplete(Some(err))
+                    ))
                 }
               }
 
@@ -199,7 +210,7 @@ object TLSEngine {
       // releases wrap lock, if previously acquired
       def releaseWrapLock: F[Unit] = {
         wrapEngine.awaitsHandshake flatMap { awaitsHandshake =>
-          (if (awaitsHandshake) wrapEngine.handshakeComplete else Applicative[F].unit) flatMap { _ =>
+          (if (awaitsHandshake) wrapEngine.handshakeComplete(None) else Applicative[F].unit) flatMap { _ =>
             hasWrapLock.modify(prev => (false, prev)) flatMap { prev =>
               if (prev) wrapSem.release
               else Applicative[F].unit

@@ -74,14 +74,17 @@ object TLSSocket {
         // Started only on `write` thread, during handshake
         // this resolves situation, when user wants just to write data to socket
         // before actually reading them
-        def readHandShake(timeout: Option[FiniteDuration]): F[Unit] = {
+        def readHandShake(
+          timeout: Option[FiniteDuration]
+          , onError: Throwable => F[Unit]
+        ): F[Unit] = {
           readSem.acquire >>
           Bracket[F, Throwable].guarantee(
             read0(10240, timeout).flatMap {
               case Some(data) if data.nonEmpty => readBuffRef.update { _ :+ data }
               case _ => Applicative[F].unit
             }
-          )(readSem.release)
+          )(readSem.release).recoverWith { case err => onError(err)}
         }
 
         // like `read` but not guarded by `read` semaphore
@@ -155,8 +158,8 @@ object TLSSocket {
             result match {
               case EncryptResult.Encrypted(data) => socket.write(data, timeout)
 
-              case EncryptResult.Handshake(data, next) =>
-                socket.write(data, timeout) flatMap { _ => Concurrent[F].start(readHandShake(timeout)) *> next flatMap go }
+              case EncryptResult.Handshake(data, next, onError) =>
+                socket.write(data, timeout) flatMap { _ => Concurrent[F].start(readHandShake(timeout, onError)) *> next flatMap go }
 
               case EncryptResult.Closed() =>
                 Sync[F].raiseError(new Throwable("TLS Engine is closed"))
