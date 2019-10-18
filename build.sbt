@@ -156,6 +156,7 @@ def previousVersion(currentVersion: String): Option[String] = {
 
 lazy val `fs2-crypto` = project.in(file(".")).
   settings(commonSettings: _*).
+  settings(mimaSettings: _*).
   settings(
     name := "fs2-crypto"
   )
