@@ -28,14 +28,14 @@ private[crypto] trait Wrap[F[_]] {
   def awaitsHandshake: F[Boolean]
 
   /** From the unwrap side, indicates the handshake is complete **/
-  def handshakeComplete: F[Unit]
+  def handshakeComplete(completeWith: Option[Throwable]): F[Unit]
 
 }
 
 private[crypto] object Wrap {
 
   def mk[F[_] : Concurrent : Timer](sslEc: ExecutionContext)(implicit engine: SSLEngine) : F[Wrap[F]] = {
-    Ref.of[F, Option[F[Unit]]](None) flatMap { handshakeDoneRef =>
+    Ref.of[F, Option[Option[Throwable] => F[Unit]]](None) flatMap { handshakeDoneRef =>
     InputOutputBuffer.mk[F](engine.getSession.getPacketBufferSize, engine.getSession.getApplicationBufferSize) flatMap { ioBuff =>
     SSLTaskRunner.mk[F](engine, sslEc) map { implicit sslTaskRunner =>
 
@@ -49,8 +49,8 @@ private[crypto] object Wrap {
         def awaitsHandshake: F[Boolean] =
           handshakeDoneRef.get.map(_.nonEmpty)
 
-        def handshakeComplete: F[Unit] =
-          handshakeDoneRef.modify { prev => (None,prev) }.flatMap { _.getOrElse(Applicative[F].unit) }
+        def handshakeComplete(completeWith: Option[Throwable]): F[Unit] =
+          handshakeDoneRef.modify { prev => (None,prev) }.flatMap { _.map(_(completeWith)).getOrElse(Applicative[F].unit) }
       }
 
     }}}
@@ -61,7 +61,7 @@ private[crypto] object Wrap {
 
     def wrap[F[_] : Concurrent : SSLTaskRunner](
       ioBuff: InputOutputBuffer[F]
-      , handshakeDoneRef: Ref[F, Option[F[Unit]]]
+      , handshakeDoneRef: Ref[F, Option[Option[Throwable] => F[Unit]]]
     )(implicit engine: SSLEngine): F[WrapResult[F]] = {
 
       ioBuff.perform({ case (inBuffer, outBuffer) =>
@@ -97,9 +97,12 @@ private[crypto] object Wrap {
             // in that case we will still signal next unwrap operation that may at this time
             // produce application data from appBuffer.
             ioBuff.output flatMap { chunk =>
-            Deferred[F, Unit] flatMap { promise =>
-            handshakeDoneRef.update(_ => Some(promise.complete(()))) as {
-              WrapResult(Some(promise.get), chunk, closed = false)
+            Deferred[F, Option[Throwable]] flatMap { promise =>
+            handshakeDoneRef.update(_ => Some((maybeThrowable: Option[Throwable]) => promise.complete(maybeThrowable))) as {
+              WrapResult(Some(promise.get.flatMap{
+                case None => Applicative[F].unit
+                case Some(err) => Sync[F].raiseError(err)
+              }), chunk, closed = false)
             }}}
 
           case HandshakeStatus.NEED_TASK =>

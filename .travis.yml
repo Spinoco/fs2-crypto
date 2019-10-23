@@ -4,6 +4,8 @@ scala:
   - 2.11.12
   - 2.12.6
 
+dist: trusty
+
 jdk:
   - oraclejdk8
 
