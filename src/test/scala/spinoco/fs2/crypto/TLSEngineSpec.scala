@@ -143,7 +143,7 @@ object TLSEngineSpec  extends Properties("TLSEngine") {
         def go(result: EncryptResult[F]): Stream[F, Option[Chunk[Byte]]] = {
           result match {
             case EncryptResult.Encrypted(data) => Stream.emit(Some(data))
-            case EncryptResult.Handshake(data, next) => Stream.emit(Some(data)) ++ Stream.eval(next).flatMap(go)
+            case EncryptResult.Handshake(data, next, _) => Stream.emit(Some(data)) ++ Stream.eval(next).flatMap(go)
             case EncryptResult.Closed() => Stream.emit(None)
           }
         }
