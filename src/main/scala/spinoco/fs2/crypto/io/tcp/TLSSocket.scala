@@ -2,18 +2,19 @@ package spinoco.fs2.crypto.io.tcp
 
 
 import java.net.SocketAddress
-
 import cats.Applicative
 import cats.effect.concurrent.{Ref, Semaphore}
+
 import javax.net.ssl.SSLEngine
 import cats.effect.{Bracket, Concurrent, Sync, Timer}
 import cats.syntax.all._
 import fs2._
 import fs2.io.tcp.Socket
-
 import spinoco.fs2.crypto.TLSEngine
 import spinoco.fs2.crypto.TLSEngine.{DecryptResult, EncryptResult}
 import spinoco.fs2.crypto.internal.util.concatBytes
+
+import java.util.concurrent.TimeoutException
 import scala.annotation.tailrec
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
@@ -125,8 +126,19 @@ object TLSSocket {
           }
         }
 
+        /** helper that guards the evaluation of `f` in timeout (in case timeout is NoneEmpty) */
+        def guardWithTimeout[A](timeout: Option[FiniteDuration], op: String)(f: F[A]): F[A] = {
+          timeout.fold(f) { timeout =>
+            Concurrent[F].race(f, Timer[F].sleep(timeout)).flatMap {
+              case Left(a) => Applicative[F].pure(a)
+              case Right(()) => Sync[F].raiseError(new TimeoutException(s"The operation ($op) did not finish in configured timeout $timeout"))
+            }
+          }
 
-        def readN(numBytes: Int, timeout: Option[FiniteDuration]): F[Option[Chunk[Byte]]] = {
+        }
+
+
+        def readN(numBytes: Int, timeout: Option[FiniteDuration]): F[Option[Chunk[Byte]]] = guardWithTimeout(timeout, "readN"){
           readSem.acquire >>
           Bracket[F, Throwable].guarantee({
             def go(acc: Catenable[Chunk[Byte]]): F[Option[Chunk[Byte]]] = {
@@ -144,13 +156,13 @@ object TLSSocket {
           })(readSem.release)
         }
 
-        def read(maxBytes: Int, timeout: Option[FiniteDuration]): F[Option[Chunk[Byte]]] = {
+        def read(maxBytes: Int, timeout: Option[FiniteDuration]): F[Option[Chunk[Byte]]] = guardWithTimeout(timeout, "read"){
           readSem.acquire >>
           Bracket[F, Throwable].guarantee(read0(maxBytes, timeout))(readSem.release)
         }
 
 
-        def write(bytes: Chunk[Byte], timeout: Option[FiniteDuration]): F[Unit] = {
+        def write(bytes: Chunk[Byte], timeout: Option[FiniteDuration]): F[Unit] = guardWithTimeout(timeout, "write"){
           def go(result: EncryptResult[F]): F[Unit] = {
             result match {
               case EncryptResult.Encrypted(data) => socket.write(data, timeout)
